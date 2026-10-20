@@ -14,7 +14,7 @@ const PORT=Number(process.env.PORT||3000), BASE=(process.env.BASE_URL||'http://l
 const CID=process.env.TWITCH_CLIENT_ID, SECRET=process.env.TWITCH_CLIENT_SECRET;
 const KEY=Buffer.from(process.env.TOKEN_KEY||'','hex');
 if(!CID||!SECRET||KEY.length!==32||!process.env.SESSION_SECRET||process.env.SESSION_SECRET.length<24) throw Error('Set Twitch credentials, 32-byte TOKEN_KEY and SESSION_SECRET in .env');
-const db=new Database(process.env.DB_PATH||'data/kitsuflowbot.sqlite');
+const db=new Database(process.env.DB_PATH||'data/streamnexus.sqlite');
 db.pragma('journal_mode = WAL');
 db.exec(`CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY,login TEXT NOT NULL,display TEXT NOT NULL,access TEXT NOT NULL,refresh TEXT NOT NULL,expires INTEGER NOT NULL,scopes TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS channels(id TEXT PRIMARY KEY,login TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 0,links INTEGER NOT NULL DEFAULT 1,blocked TEXT NOT NULL DEFAULT '[]');
