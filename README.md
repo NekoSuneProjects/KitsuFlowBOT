@@ -35,3 +35,17 @@ Node.js 22+, Twitch developer application, an HTTPS reverse proxy in production.
 5. Streamers can disable or disconnect their own channel without affecting anyone else's data or account.
 
 **Important scaling note:** This early version uses a single bot-account EventSub WebSocket and reconnects it when channel membership changes. Twitch has per-user WebSocket and per-connection subscription limits, so this must be migrated to App Access Token + EventSub webhooks or conduits, including the required broadcaster authorisations, before serving large numbers of channels. Twitch recommends cloud chatbot architecture for this scenario. Production rollout also requires better reconnect/health monitoring, channel authorisation verification and security testing.
+
+## Streamer engagement modules
+
+The dashboard now includes per-channel:
+- **Custom commands** with cooldowns, templates and permissions (existing feature).
+- **Timers** with a named announcement and interval (5–1440 minutes), sent while live.
+- **Counters**, editable from the dashboard and via `!counter name` and moderator-only `!counter name +` / `!counter name -`.
+- **Banned words and phrases** configured for log-only, ten-minute timeout or ban. Beware false positives; start with log-only and review.
+- **Quotes** added through the dashboard or moderator-only `!addquote text`; `!quote` selects a random entry and `!quote number` chooses a specific one.
+- **Viewer points** configurable with a points amount and reward interval; `!points` and `!top` display balances.
+
+**Loyalty accuracy:** Twitch EventSub chat events do not provide an exhaustive list of viewers. This implementation awards points only to recently active chat participants after checking the channel is live. It does not and cannot correctly award points to every passive viewer/lurker without another consented presence mechanism. Watch minutes are an *estimate of active chat participation*, not actual video watch time. Points do not grant cash-equivalent rewards.
+
+The engagement engine uses an in-process interval loop. For larger production deployments, move this into a durable, distributed queue with idempotency and per-channel rate limiting. The feature has been committed but not validated against Twitch live traffic or fully regression-tested.
