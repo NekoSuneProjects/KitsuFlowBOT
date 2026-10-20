@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import {installEngagement} from './engagement.js';
 import {installCreator} from './creator.js';
+import {installVoice} from './voice.js';
 import {installAccess} from './access.js';
 
 const PORT=Number(process.env.PORT||3000), BASE=(process.env.BASE_URL||'http://localhost:3000').replace(/\/$/,'');
@@ -157,4 +158,5 @@ app.post('/api/clip',withUser,access.channelOnly('bot_supervisor'),csrf,safe(asy
 app.post('/api/moderate',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{if(!['ban','timeout'].includes(req.body.action))throw Error('Invalid action');const uid=await lookup(String(req.body.user||''));const seconds=req.body.action==='timeout'?Math.max(1,Math.min(1209600,Number(req.body.seconds)||600)):null;await moderate(req.channelId,uid,seconds,'Dashboard moderation');log(req.channelId,req.body.action,req.body.user);res.json({ok:true})}));
 const engagement=installEngagement({app,db,withUser,csrf,safe,say,moderate,log,api});
 const creator=installCreator({app,db,withUser,csrf,safe,log,say});
+installVoice({app,db,withUser,csrf,access,api,clip,log,say});
 app.use(express.static('public'));app.listen(PORT,()=>console.log('KitsuFlowBOT on '+PORT));connectChat();
