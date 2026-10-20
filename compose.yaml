@@ -7,5 +7,22 @@ services:
       - "3000:3000"
     volumes:
       - kitsuflowbot_data:/app/data
+  voice-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.voice
+    restart: unless-stopped
+    profiles: [voice]
+    env_file: .env
+    environment:
+      VOICE_API_URL: http://kitsuflowbot:3000
+      VOSK_MODEL_PATH: /models/vosk
+    volumes:
+      - ./models/vosk:/models/vosk:ro
+    depends_on: [kitsuflowbot]
+    mem_limit: 768m
+    cpus: 1.5
+    security_opt:
+      - no-new-privileges:true
 volumes:
   kitsuflowbot_data:
