@@ -49,3 +49,21 @@ The dashboard now includes per-channel:
 **Loyalty accuracy:** Twitch EventSub chat events do not provide an exhaustive list of viewers. This implementation awards points only to recently active chat participants after checking the channel is live. It does not and cannot correctly award points to every passive viewer/lurker without another consented presence mechanism. Watch minutes are an *estimate of active chat participation*, not actual video watch time. Points do not grant cash-equivalent rewards.
 
 The engagement engine uses an in-process interval loop. For larger production deployments, move this into a durable, distributed queue with idempotency and per-channel rate limiting. The feature has been committed but not validated against Twitch live traffic or fully regression-tested.
+
+## Creator Suite: rewards, viewer activities and OBS overlays
+
+Each broadcaster owns an isolated Creator Suite in the Studio dashboard.
+
+- **Giveaways and contests:** create open-entry or loyalty-point-cost campaigns. Viewers enter in the broadcaster's chat using `!join`. Only one entry per Twitch identity per campaign. Streamers can draw a cryptographically selected winner, which closes entries. `contest` currently uses the same random-draw mechanics as giveaway; judged competitions, voting, and submission management are not yet implemented.
+- **Stream store:** create rewards priced in internal StreamNexus loyalty points with finite or unlimited stock. Viewers use `!redeem Reward name`. Requests enter a pending review queue; streamers mark fulfilled or refunded. Points are debited atomically with redemption creation.
+- **Viewer queue:** `!queue join`, `!queue leave`, `!queue`; streamers can call the next user or clear the queue.
+- **Leaderboard:** per-channel point totals and estimated chat-active minutes, including `!top`.
+- **Reports and activity feed:** dashboard member count, points in circulation, number of redemptions, recent events, and leaderboard.
+- **OBS overlays:** create per-channel browser-source pages for alert activity, points leaderboard, viewer queue or ticker at `/overlay/KEY`. Add an HTTPS overlay URL in OBS as a Browser Source. The overlay is transparent and refreshes approximately every five seconds. Test alerts are available from the Studio dashboard.
+
+### Caveats before public launch
+- Giveaways are strictly **virtual loyalty-point/community activities** at this stage. Do not use paid-entry raffles or monetary prizes without reviewing applicable platform rules and laws. A paid loyalty-point entry could also create fairness concerns; use free entry as the default.
+- A public overlay URL is an unguessable bearer capability. Treat it as secret and rotate when leaked (rotation UI is a future task); never put OAuth tokens into overlays.
+- This first release offers basic event displays and not the full StreamElements visual editor: scene designer, animated alert themes, real follower/sub/raid integrations, asset uploads, sound mixing and widget drag-and-drop are pending.
+- No guarantees of financial or physical prize fulfillment; implement eligibility rules, entry cutoffs, anti-abuse protections, auditable draw records, and accessibility considerations before real giveaways.
+- The changes are committed but have not been end-to-end tested with real Twitch channels. Stress testing, security review, pagination, durable jobs and multi-node scheduling remain pending.
