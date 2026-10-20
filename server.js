@@ -7,6 +7,7 @@ import {WebSocket} from 'ws';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import {installEngagement} from './engagement.js';
+import {installCreator} from './creator.js';
 
 const PORT=Number(process.env.PORT||3000), BASE=(process.env.BASE_URL||'http://localhost:3000').replace(/\/$/,'');
 const CID=process.env.TWITCH_CLIENT_ID, SECRET=process.env.TWITCH_CLIENT_SECRET;
@@ -43,6 +44,7 @@ const value=(e.message?.text||'').trim(),parts=value.split(/\s+/),cmd=parts[0]?.
 if(ch.links&&!isMod&&/https?:\/\/|(?:[a-z0-9-]+\.)+(?:com|net|org|xyz|click|shop|ru|co\.uk)\b/i.test(value)){try{await moderate(ch.id,e.chatter_user_id,60,'Unapproved URL');log(ch.id,'timeout',e.chatter_user_login+' URL')}catch(err){log(ch.id,'error',err.message)}return}
 try{
 if(await engagement.onMessage(ch,e,value,parts,isMod))return;
+if(await creator.onMessage(ch,e,value,parts,isMod))return;
 if(!cmd?.startsWith('!'))return;
 if(cmd==='!clip'){if(!isMod)return;const c=await clip(ch.id);await say(ch.id,'Clip created: https://clips.twitch.tv/'+c.id);return}
 if((cmd==='!ban'||cmd==='!timeout')&&isMod){const target=parts[1];if(!target)return;const uid=await lookup(target);const seconds=cmd==='!timeout'?Math.max(1,Math.min(1209600,Number(parts[2])||600)):null;await moderate(ch.id,uid,seconds,parts.slice(cmd==='!timeout'?3:2).join(' ')||'Moderator command');log(ch.id,cmd,target);await say(ch.id,target+' '+(seconds?'timed out':'banned'));return}
@@ -88,4 +90,5 @@ app.delete('/api/commands/:name',withUser,csrf,(req,res)=>{db.prepare('DELETE FR
 app.post('/api/clip',withUser,csrf,safe(async(req,res)=>{const c=await clip(req.session.uid);res.json(c)}));
 app.post('/api/moderate',withUser,csrf,safe(async(req,res)=>{if(!['ban','timeout'].includes(req.body.action))throw Error('Invalid action');const uid=await lookup(String(req.body.user||''));const seconds=req.body.action==='timeout'?Math.max(1,Math.min(1209600,Number(req.body.seconds)||600)):null;await moderate(req.session.uid,uid,seconds,'Dashboard moderation');log(req.session.uid,req.body.action,req.body.user);res.json({ok:true})}));
 const engagement=installEngagement({app,db,withUser,csrf,safe,say,moderate,log,api});
+const creator=installCreator({app,db,withUser,csrf,safe,log,say});
 app.use(express.static('public'));app.listen(PORT,()=>console.log('StreamNexus on '+PORT));connectChat();
