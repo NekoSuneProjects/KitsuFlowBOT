@@ -112,3 +112,22 @@ The dedicated public bot uses `user:read:chat user:write:chat user:bot moderator
 Broadcasters receive permissions for the currently envisaged channel features, including clips, channel chat bot access, basic channel management, follower lists, subscription information, cheers and channel point activity. **Follower-bot detection is not yet implemented**; `moderator:read:followers` is authorization for follower inspection, not an automatic malicious-follower detector. Twitch follower reviews should avoid automatic bans based solely on heuristic scoring. A broader optional-permission flow can be introduced later to reduce up-front consent.
 
 No tokens or device secrets are returned after grant completion. Only configured operators can initiate or poll the bot device grant. Use HTTPS, do not expose codes publicly, test the Twitch redirect `https://kitsuflowbot.nekosunevr.co.uk/auth/callback`, and confirm bot identity in the Admin Panel after connection.
+
+## Firefox-compatible voice clipping (opt-in Docker worker)
+
+This branch introduces **server-side Twitch live-stream audio recognition**, so browser speech-recognition support is not required. The architecture is `Streamlink (lowest quality) → FFmpeg (mono 16 kHz PCM) → Vosk (offline ASR) → authenticated KitsuFlowBOT API → Twitch Create Clip`. Audio is processed in memory; no recording is intentionally saved.
+
+### Setup
+1. In `.env`, set `VOICE_WORKER_SECRET` to a random 32-byte hex string (e.g. `openssl rand -hex 32`). Keep `BASE_URL`, Twitch credentials, and existing secrets as before.
+2. Download the **small English Vosk speech recognition model** from [Vosk Models](https://alphacephei.com/vosk/models) and extract its files into `./models/vosk/` (so `./models/vosk/am`, `./models/vosk/conf`, etc. exist). Ensure the Docker worker UID 65534 can read the directory. The model isn't bundled in Git to avoid committing large binary files.
+3. Start the backend with `docker compose up -d`. Start the voice worker with `docker compose --profile voice up -d --build voice-worker`.
+4. On the broadcaster's **Voice & Clips** Studio page, enable recognition, set a trigger phrase such as `clip it`, and select cooldown (20–600 seconds).
+5. Ensure the streamer authorised Twitch `clips:edit`, is live and enabled the bot. When someone says the phrase in the stream audio, the worker attempts a clip and the clip appears in Voice & Clips history.
+
+### Privacy, latency and scale
+- **Explicit opt-in per channel**; disabled by default. Audio processing stops after the channel goes offline/gets disabled (next scheduler poll). Never process private or unconsented broadcasts.
+- Recognition listens to **all mixed broadcast audio** (game, Discord callers and guests), not exclusively the streamer's microphone. False triggers are possible.
+- Twitch HLS playback latency and speech recognition delay may cause clips to cover a later window than the intended moment. Twitch Create Clip is asynchronous and playback is subject to availability and platform conditions.
+- The voice Docker service is opt-in (`profiles: [voice]`), runs as unprivileged UID, has CPU and memory limits, and defaults to one simultaneously monitored channel. Higher concurrency needs more CPU/RAM and separately provisioned workers.
+- If Twitch playback changes or Streamlink loses access, recognition will fail until the integration is updated; Twitch Helix does not provide an HLS URL.
+- This implementation is an **initial beta**, not live-tested. The speech model must be installed explicitly. Do not enable on hundreds of channels without durable work queues, per-stream status reporting, retries/backoff, resource accounting and tests.
