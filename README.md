@@ -92,3 +92,13 @@ Image: `ghcr.io/nekosuneprojects/kitsuflowbot`. Tags include branch/tag names; `
 4. If the repository/package remains private, grant your server's GitHub account package-read permission and log in to `ghcr.io` using a suitable token with `read:packages`. Never place a token into the Compose YAML or git repository.
 
 The CI image-publish workflow does not install/configure Twitch credentials; secrets are supplied at **runtime** via the uncommitted `.env` file. Check the Actions run and Packages page to verify images actually published.
+
+## Studio dashboard redesign and global bot management
+
+The Studio interface now uses a sidebar with separate pages for overview, activity feed, reports, custom commands, timers, moderation, voice clipping, loyalty, giveaways, store, viewer queues, quotes/counters, overlays, channel connections, channel settings, team invitations and an operator-only Admin Panel. It is responsive and uses a consistent dark design.
+
+**One public bot for everyone:** Configure `BOT_ADMIN_TWITCH_ID` with the **numeric Twitch user ID of the KitsuFlowBOT platform administrator**. Sign into Studio as that account, open **Admin Panel**, then choose **Connect public Twitch bot**. On the Twitch authorisation prompt sign into the **separate dedicated bot account**, not the broadcaster account. Other streamers only authorise their own broadcaster account and then enable the shared bot in Connections. Give the shared bot moderator privileges on channels needing moderation actions.
+
+The Admin Panel shows configured channels, connection state and a safe EventSub reconnect control. Access is enforced on the server, not just hidden in the UI. The streamer-only OAuth callback remains `/auth/callback`; the bot initiation route is `/auth/connect/bot`.
+
+The interface is a substantial frontend overhaul against the current Express APIs, **not** an independently verified production deployment. Test login, channel switching, admin authorisation, CRUD features, mobile layout and Twitch EventSub against your actual domain before release.
