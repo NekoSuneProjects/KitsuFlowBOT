@@ -1,11 +1,11 @@
 services:
-  streamnexus:
-    image: ghcr.io/nekosuneprojects/streamnexus:latest
+  kitsuflowbot:
+    image: ghcr.io/nekosuneprojects/kitsuflowbot:latest
     restart: unless-stopped
     env_file: .env
     ports:
       - "3000:3000"
     volumes:
-      - streamnexus_data:/app/data
+      - kitsuflowbot_data:/app/data
 volumes:
-  streamnexus_data:
+  kitsuflowbot_data:

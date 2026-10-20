@@ -1,4 +1,4 @@
-// Per-channel StreamNexus engagement features.
+// Per-channel KitsuFlowBOT engagement features.
 export function installEngagement({app,db,withUser,csrf,safe,say,moderate,log,api}) {
  db.exec(`CREATE TABLE IF NOT EXISTS timers(channel TEXT NOT NULL,name TEXT NOT NULL,message TEXT NOT NULL,minutes INTEGER NOT NULL DEFAULT 15,enabled INTEGER NOT NULL DEFAULT 1,last_sent INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(channel,name));
  CREATE TABLE IF NOT EXISTS counters(channel TEXT NOT NULL,name TEXT NOT NULL,value INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(channel,name));

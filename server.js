@@ -36,7 +36,7 @@ const botAdmin=process.env.BOT_ADMIN_TWITCH_ID;
 const isOperator=id=>Boolean(botAdmin&&id===botAdmin);
 async function say(channel,message){const id=botId();if(!id)throw Error('Connect bot first');await api(id,'chat/messages','POST',{broadcaster_id:channel,sender_id:id,message:String(message).slice(0,500)})}
 async function lookup(login){const id=botId();if(!id)throw Error('Bot not connected');const u=await api(id,'users?login='+encodeURIComponent(login.replace(/^@/,'')));if(!u.data?.[0])throw Error('User not found');return u.data[0].id}
-async function moderate(channel,user,duration,reason){const id=botId();if(!id)throw Error('Connect bot first');if(id===user||channel===user)throw Error('Cannot moderate bot or broadcaster');await api(id,'moderation/bans?broadcaster_id='+channel+'&moderator_id='+id,'POST',{data:{user_id:user,...(duration?{duration}:{}),reason:reason||'StreamNexus moderation'}})}
+async function moderate(channel,user,duration,reason){const id=botId();if(!id)throw Error('Connect bot first');if(id===user||channel===user)throw Error('Cannot moderate bot or broadcaster');await api(id,'moderation/bans?broadcaster_id='+channel+'&moderator_id='+id,'POST',{data:{user_id:user,...(duration?{duration}:{}),reason:reason||'KitsuFlowBOT moderation'}})}
 async function clip(channel){const data=await api(channel,'clips?broadcaster_id='+channel,'POST');const c=data.data?.[0];if(!c)throw Error('No live clip returned');log(channel,'clip',c.edit_url||c.id);return c}
 const cooldowns=new Map();
 const allowed=(level,e)=>level==='everyone'||e.badges?.some(b=>b.set_id==='broadcaster'||b.set_id==='moderator')||(level==='subscriber'&&e.badges?.some(b=>b.set_id==='subscriber'));
@@ -71,7 +71,7 @@ app.use(session({store:new Store({db:'sessions.sqlite',dir:'data'}),name:'sn.sid
 const withUser=(req,res,next)=>req.session.uid?next():res.status(401).json({error:'Login required'});
 const csrf=(req,res,next)=>{if(req.get('origin')!==BASE)return res.status(403).json({error:'Origin mismatch'});next()};
 const safe=fn=>(req,res,next)=>Promise.resolve(fn(req,res)).catch(e=>res.status(400).json({error:e.message}));
-app.get('/auth/:role',safe(async(req,res)=>{const role=req.params.role;if(!['streamer','bot'].includes(role))throw Error('Invalid role');if(role==='bot'&&!isOperator(req.session.uid))return res.status(403).send('Only the StreamNexus operator can link the global bot account. Set BOT_ADMIN_TWITCH_ID.');
+app.get('/auth/:role',safe(async(req,res)=>{const role=req.params.role;if(!['streamer','bot'].includes(role))throw Error('Invalid role');if(role==='bot'&&!isOperator(req.session.uid))return res.status(403).send('Only the KitsuFlowBOT operator can link the global bot account. Set BOT_ADMIN_TWITCH_ID.');
 const state=crypto.randomBytes(24).toString('hex');req.session.oauth={state,role,owner:req.session.uid};
 const scope=role==='bot'?'user:read:chat user:write:chat user:bot moderator:manage:banned_users':'channel:bot clips:edit';
 const p=new URLSearchParams({client_id:CID,redirect_uri:BASE+'/auth/callback',response_type:'code',scope,state});res.redirect('https://id.twitch.tv/oauth2/authorize?'+p)}));
@@ -80,7 +80,7 @@ const r=await fetch('https://id.twitch.tv/oauth2/token',{method:'POST',body:new 
 const who=await fetch('https://api.twitch.tv/helix/users',{headers:{'Client-Id':CID,Authorization:'Bearer '+t.access_token}});if(!who.ok)throw Error('User lookup failed');const u=(await who.json()).data[0];
 db.prepare('INSERT INTO accounts(id,login,display,access,refresh,expires,scopes) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET login=excluded.login,display=excluded.display,access=excluded.access,refresh=excluded.refresh,expires=excluded.expires,scopes=excluded.scopes').run(u.id,u.login,u.display_name,enc(t.access_token),enc(t.refresh_token),Date.now()+t.expires_in*1000,JSON.stringify(t.scope||[]));
 if(s.role==='streamer'){req.session.uid=u.id;db.prepare('INSERT INTO channels(id,login) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET login=excluded.login').run(u.id,u.login)}
-else{if(!s.owner||s.owner!==req.session.uid||!isOperator(s.owner))throw Error('Only the StreamNexus operator may configure the shared bot');db.prepare("INSERT INTO config(key,value) VALUES('bot_id',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(u.id);connectChat()}
+else{if(!s.owner||s.owner!==req.session.uid||!isOperator(s.owner))throw Error('Only the KitsuFlowBOT operator may configure the shared bot');db.prepare("INSERT INTO config(key,value) VALUES('bot_id',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(u.id);connectChat()}
 res.redirect('/')}));
 app.post('/logout',csrf,(req,res)=>req.session.destroy(()=>res.json({ok:true})));
 const access=installAccess({app,db,withUser,csrf,safe,log});
@@ -95,4 +95,4 @@ app.post('/api/clip',withUser,access.channelOnly('bot_supervisor'),csrf,safe(asy
 app.post('/api/moderate',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{if(!['ban','timeout'].includes(req.body.action))throw Error('Invalid action');const uid=await lookup(String(req.body.user||''));const seconds=req.body.action==='timeout'?Math.max(1,Math.min(1209600,Number(req.body.seconds)||600)):null;await moderate(req.channelId,uid,seconds,'Dashboard moderation');log(req.channelId,req.body.action,req.body.user);res.json({ok:true})}));
 const engagement=installEngagement({app,db,withUser,csrf,safe,say,moderate,log,api});
 const creator=installCreator({app,db,withUser,csrf,safe,log,say});
-app.use(express.static('public'));app.listen(PORT,()=>console.log('StreamNexus on '+PORT));connectChat();
+app.use(express.static('public'));app.listen(PORT,()=>console.log('KitsuFlowBOT on '+PORT));connectChat();
