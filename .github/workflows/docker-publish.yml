@@ -1,4 +1,4 @@
-name: Build and publish StreamNexus Docker image
+name: Build and publish KitsuFlowBOT Docker image
 
 on:
   push:
@@ -33,7 +33,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/nekosuneprojects/streamnexus
+          images: ghcr.io/nekosuneprojects/kitsuflowbot
           tags: |
             type=ref,event=branch
             type=ref,event=pr
