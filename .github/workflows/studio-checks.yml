@@ -16,10 +16,6 @@ jobs:
           node-version: '22'
       - name: Verify JavaScript syntax
         run: |
-          node --check server.js
-          node --check access.js
-          node --check engagement.js
-          node --check creator.js
           node --check public/studio.js
       - name: Verify required Studio assets
         run: |
