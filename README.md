@@ -77,3 +77,18 @@ Owner-issued **JWT API tokens** are HMAC-SHA256 signed, scoped to `reports:read`
 The application defines a provider-neutral event collection for Twitch, YouTube, Kick and VPzone, but **only Twitch sign-in/chat is currently implemented**. YouTube and Kick OAuth, webhook signature validation, retry/deduplication and mapped event ingestion remain pending. VPzone's API and event availability must be verified before building an adapter. In the future, native follows, subscribers/resubscribers, Twitch bits/raids, YouTube Super Chats/memberships, and Kick subscription/renewal events should map into a common event/alert schema only after individually verified integration.
 
 **Security and launch warning:** this is an early prototype and has not undergone tests or code review. Before deployment, require methodical checks of scoped permissions for every endpoint, token rotation and replay resistance, authenticated overlay delivery, invite CSRF and expiry, session switching, rate-limiting and secret management. Do not distribute generated API/overlay credentials. Existing OBS overlay URLs are independent bearer links, not protected by the newly generated overlay integration token.
+
+## Docker images via GitHub Actions
+
+The workflow `.github/workflows/docker-publish.yml` builds for **linux/amd64** and **linux/arm64** with Buildx/QEMU and uploads to GitHub Container Registry (GHCR) when pushing to `main`, a `feature/**` branch, a `v*` tag, or manually dispatching the workflow. Pull requests build for verification but do not publish.
+
+Image: `ghcr.io/nekosuneprojects/streamnexus`. Tags include branch/tag names; `latest` is produced only from the `main` branch. For the development branch use `feature-twitch-bot-foundation`, not `latest`, until changes are merged to main.
+
+### Self-hosted deployment
+
+1. Copy `.env.example` to `.env`, and set `BASE_URL`, Twitch OAuth credentials, SESSION_SECRET, TOKEN_KEY, BOT_ADMIN_TWITCH_ID. Twitch's application redirect URI must exactly match `BASE_URL/auth/callback`.
+2. After merging to `main`, run `docker compose pull && docker compose up -d` using the provided `compose.yaml`. For the feature branch, change the image tag temporarily to `feature-twitch-bot-foundation`.
+3. Expose the service behind a trusted HTTPS reverse proxy in production. Persist the `streamnexus_data` Docker volume, which holds the SQLite database and sessions.
+4. If the repository/package remains private, grant your server's GitHub account package-read permission and log in to `ghcr.io` using a suitable token with `read:packages`. Never place a token into the Compose YAML or git repository.
+
+The CI image-publish workflow does not install/configure Twitch credentials; secrets are supplied at **runtime** via the uncommitted `.env` file. Check the Actions run and Packages page to verify images actually published.
