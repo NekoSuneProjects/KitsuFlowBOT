@@ -20,4 +20,4 @@ p=panel('Custom commands');const form=el('form',''),name=document.createElement(
 p=panel('Recent events');for(const x of state.logs)p.append(el('div',x.created+' · '+x.event+' · '+x.detail));if(!state.logs.length)p.append(el('p','No events yet'));
 }
 reload();
-</script></body></html>
+</script><script src="/engagement.js" defer></script></body></html>
