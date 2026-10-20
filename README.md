@@ -102,3 +102,13 @@ The Studio interface now uses a sidebar with separate pages for overview, activi
 The Admin Panel shows configured channels, connection state and a safe EventSub reconnect control. Access is enforced on the server, not just hidden in the UI. The streamer-only OAuth callback remains `/auth/callback`; the bot initiation route is `/auth/connect/bot`.
 
 The interface is a substantial frontend overhaul against the current Express APIs, **not** an independently verified production deployment. Test login, channel switching, admin authorisation, CRUD features, mobile layout and Twitch EventSub against your actual domain before release.
+
+## Twitch OAuth: broadcaster versus one public bot
+
+Use `BOT_ADMIN_TWITCH_IDS=12345678,23456789` to allow multiple **numeric** Twitch user IDs into the Admin Panel. The older `BOT_ADMIN_TWITCH_ID` setting is supported as a fallback when the new one is unset. Each broadcaster signs into their own account, authorises broadcaster-scoped API features, and controls only their authorised channel. Broadcaster scopes are intentionally separate from the dedicated public bot scopes. Do not reuse third-party Twitch client IDs or redirects copied from StreamElements or other apps.
+
+The dedicated public bot uses `user:read:chat user:write:chat user:bot moderator:manage:banned_users`. The operator can authorise it using the ordinary Twitch account flow or the **Admin Panel → Generate Twitch device code** flow. Open the Twitch verification URL on a separate device/browser, sign into the **bot account**, approve, then press **Check authorisation** in the admin panel. Twitch device codes expire and the check endpoint enforces a polling interval. The server rejects a bot token whose Twitch ID is the same as the operator/streamer Twitch account.
+
+Broadcasters receive permissions for the currently envisaged channel features, including clips, channel chat bot access, basic channel management, follower lists, subscription information, cheers and channel point activity. **Follower-bot detection is not yet implemented**; `moderator:read:followers` is authorization for follower inspection, not an automatic malicious-follower detector. Twitch follower reviews should avoid automatic bans based solely on heuristic scoring. A broader optional-permission flow can be introduced later to reduce up-front consent.
+
+No tokens or device secrets are returned after grant completion. Only configured operators can initiate or poll the bot device grant. Use HTTPS, do not expose codes publicly, test the Twitch redirect `https://kitsuflowbot.nekosunevr.co.uk/auth/callback`, and confirm bot identity in the Admin Panel after connection.
