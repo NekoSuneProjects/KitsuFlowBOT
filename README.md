@@ -1,4 +1,4 @@
-# StreamNexus
+# KitsuFlowBOT
 
 A working **early-stage Twitch bot foundation** with broadcaster OAuth login, a separate bot account, chat EventSub, custom commands, timeouts, bans, clips, browser voice-trigger clipping, URL timeout rules and a dark-purple Studio dashboard.
 
@@ -26,10 +26,10 @@ Node.js 22+, Twitch developer application, an HTTPS reverse proxy in production.
 
 ## Multi-channel shared bot (one bot, many broadcasters)
 
-**Set `BOT_ADMIN_TWITCH_ID`** to the numeric Twitch ID of the StreamNexus operator before deployment. Only that account can authorise or replace the global NexusBot Twitch account. Other streamers never connect their own bot account.
+**Set `BOT_ADMIN_TWITCH_ID`** to the numeric Twitch ID of the KitsuFlowBOT operator before deployment. Only that account can authorise or replace the global NexusBot Twitch account. Other streamers never connect their own bot account.
 
 1. Operator logs in with Twitch, chooses **Connect global bot account**, authorises the dedicated NexusBot account exactly once.
-2. Every streamer logs in to StreamNexus using their **own** broadcaster Twitch account and grants `channel:bot` and `clips:edit`.
+2. Every streamer logs in to KitsuFlowBOT using their **own** broadcaster Twitch account and grants `channel:bot` and `clips:edit`.
 3. Each streamer enables the bot only for their own channel. The bot then subscribes to incoming chat events for enabled channels and uses per-channel commands and settings.
 4. For moderator actions, each streamer must grant the **shared bot** moderator status on Twitch, e.g. `/mod NexusBotUsername`.
 5. Streamers can disable or disconnect their own channel without affecting anyone else's data or account.
@@ -55,7 +55,7 @@ The engagement engine uses an in-process interval loop. For larger production de
 Each broadcaster owns an isolated Creator Suite in the Studio dashboard.
 
 - **Giveaways and contests:** create open-entry or loyalty-point-cost campaigns. Viewers enter in the broadcaster's chat using `!join`. Only one entry per Twitch identity per campaign. Streamers can draw a cryptographically selected winner, which closes entries. `contest` currently uses the same random-draw mechanics as giveaway; judged competitions, voting, and submission management are not yet implemented.
-- **Stream store:** create rewards priced in internal StreamNexus loyalty points with finite or unlimited stock. Viewers use `!redeem Reward name`. Requests enter a pending review queue; streamers mark fulfilled or refunded. Points are debited atomically with redemption creation.
+- **Stream store:** create rewards priced in internal KitsuFlowBOT loyalty points with finite or unlimited stock. Viewers use `!redeem Reward name`. Requests enter a pending review queue; streamers mark fulfilled or refunded. Points are debited atomically with redemption creation.
 - **Viewer queue:** `!queue join`, `!queue leave`, `!queue`; streamers can call the next user or clear the queue.
 - **Leaderboard:** per-channel point totals and estimated chat-active minutes, including `!top`.
 - **Reports and activity feed:** dashboard member count, points in circulation, number of redemptions, recent events, and leaderboard.
@@ -70,7 +70,7 @@ Each broadcaster owns an isolated Creator Suite in the Studio dashboard.
 
 ## Channel accounts, staff invitations, API keys and cross-platform model
 
-Each broadcaster has a generated **StreamNexus account ID** separate from its numeric Twitch ID. The owner can select their own channel or an invited channel using the dashboard selector. Membership roles: **Owner** (own broadcaster account), **Full Control** (administration excluding ownership transfer and security-token issuance), **Bot Supervisor** (operational moderation and bot management) and **Editor** (commands and editor content). Invites are signed by a random bearer secret, single use and expire after a configurable 1–7 days. Recipients need to log in with Twitch first; after acceptance, their channel switcher includes the shared channel. Invite links must be protected like passwords.
+Each broadcaster has a generated **KitsuFlowBOT account ID** separate from its numeric Twitch ID. The owner can select their own channel or an invited channel using the dashboard selector. Membership roles: **Owner** (own broadcaster account), **Full Control** (administration excluding ownership transfer and security-token issuance), **Bot Supervisor** (operational moderation and bot management) and **Editor** (commands and editor content). Invites are signed by a random bearer secret, single use and expire after a configurable 1–7 days. Recipients need to log in with Twitch first; after acceptance, their channel switcher includes the shared channel. Invite links must be protected like passwords.
 
 Owner-issued **JWT API tokens** are HMAC-SHA256 signed, scoped to `reports:read` or `overlay:read`, expiring, tracked by a hashed secret, and revocable by token ID. The only implemented bearer API endpoints are `GET /api/v1/reports` and `GET /api/v1/overlays`; use `Authorization: Bearer TOKEN`. The JWT is shown only once, never displayed as a standing credential. The channel's separately rotated **overlay integration token** is a future integration credential, **not** yet an authentication mechanism for existing overlay URLs. Existing per-widget overlay URLs remain active when this token rotates.
 
@@ -82,13 +82,13 @@ The application defines a provider-neutral event collection for Twitch, YouTube,
 
 The workflow `.github/workflows/docker-publish.yml` builds for **linux/amd64** and **linux/arm64** with Buildx/QEMU and uploads to GitHub Container Registry (GHCR) when pushing to `main`, a `feature/**` branch, a `v*` tag, or manually dispatching the workflow. Pull requests build for verification but do not publish.
 
-Image: `ghcr.io/nekosuneprojects/streamnexus`. Tags include branch/tag names; `latest` is produced only from the `main` branch. For the development branch use `feature-twitch-bot-foundation`, not `latest`, until changes are merged to main.
+Image: `ghcr.io/nekosuneprojects/kitsuflowbot`. Tags include branch/tag names; `latest` is produced only from the `main` branch. For the development branch use `feature-twitch-bot-foundation`, not `latest`, until changes are merged to main.
 
 ### Self-hosted deployment
 
 1. Copy `.env.example` to `.env`, and set `BASE_URL`, Twitch OAuth credentials, SESSION_SECRET, TOKEN_KEY, BOT_ADMIN_TWITCH_ID. Twitch's application redirect URI must exactly match `BASE_URL/auth/callback`.
 2. After merging to `main`, run `docker compose pull && docker compose up -d` using the provided `compose.yaml`. For the feature branch, change the image tag temporarily to `feature-twitch-bot-foundation`.
-3. Expose the service behind a trusted HTTPS reverse proxy in production. Persist the `streamnexus_data` Docker volume, which holds the SQLite database and sessions.
+3. Expose the service behind a trusted HTTPS reverse proxy in production. Persist the `kitsuflowbot_data` Docker volume, which holds the SQLite database and sessions.
 4. If the repository/package remains private, grant your server's GitHub account package-read permission and log in to `ghcr.io` using a suitable token with `read:packages`. Never place a token into the Compose YAML or git repository.
 
 The CI image-publish workflow does not install/configure Twitch credentials; secrets are supplied at **runtime** via the uncommitted `.env` file. Check the Actions run and Packages page to verify images actually published.
