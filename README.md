@@ -23,3 +23,15 @@ Node.js 22+, Twitch developer application, an HTTPS reverse proxy in production.
 - This is an initial functional foundation, **not a finished StreamElements/Nightbot alternative**. Needed: robust multi-tenant workers, CSRF token model, session store hardening, per-command granular permissions, live stream events, overlays, migrations, moderation allowlists, metrics, webhook verification, test coverage, and desktop voice app.
 - Self-host behind HTTPS. For production set `BASE_URL` to the exact HTTPS origin, `TRUST_PROXY=true` only behind a trusted reverse proxy, and back up the SQLite volume.
 - Twitch docs: https://dev.twitch.tv/docs/chat/authenticating/ , https://dev.twitch.tv/docs/eventsub/ , https://dev.twitch.tv/docs/api/reference/
+
+## Multi-channel shared bot (one bot, many broadcasters)
+
+**Set `BOT_ADMIN_TWITCH_ID`** to the numeric Twitch ID of the StreamNexus operator before deployment. Only that account can authorise or replace the global NexusBot Twitch account. Other streamers never connect their own bot account.
+
+1. Operator logs in with Twitch, chooses **Connect global bot account**, authorises the dedicated NexusBot account exactly once.
+2. Every streamer logs in to StreamNexus using their **own** broadcaster Twitch account and grants `channel:bot` and `clips:edit`.
+3. Each streamer enables the bot only for their own channel. The bot then subscribes to incoming chat events for enabled channels and uses per-channel commands and settings.
+4. For moderator actions, each streamer must grant the **shared bot** moderator status on Twitch, e.g. `/mod NexusBotUsername`.
+5. Streamers can disable or disconnect their own channel without affecting anyone else's data or account.
+
+**Important scaling note:** This early version uses a single bot-account EventSub WebSocket and reconnects it when channel membership changes. Twitch has per-user WebSocket and per-connection subscription limits, so this must be migrated to App Access Token + EventSub webhooks or conduits, including the required broadcaster authorisations, before serving large numbers of channels. Twitch recommends cloud chatbot architecture for this scenario. Production rollout also requires better reconnect/health monitoring, channel authorisation verification and security testing.
