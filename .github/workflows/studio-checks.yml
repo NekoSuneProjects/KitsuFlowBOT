@@ -1,0 +1,28 @@
+name: Studio frontend checks
+on:
+  push:
+    branches: [main, 'feature/**']
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify JavaScript syntax
+        run: |
+          node --check server.js
+          node --check access.js
+          node --check engagement.js
+          node --check creator.js
+          node --check public/studio.js
+      - name: Verify required Studio assets
+        run: |
+          test -s public/index.html
+          test -s public/studio.css
+          test -s public/studio.js
