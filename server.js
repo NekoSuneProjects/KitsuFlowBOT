@@ -32,7 +32,7 @@ const r=await fetch('https://id.twitch.tv/oauth2/token',{method:'POST',body:p});
 const t=await r.json();db.prepare('UPDATE accounts SET access=?,refresh=?,expires=? WHERE id=?').run(enc(t.access_token),enc(t.refresh_token||dec(a.refresh)),Date.now()+t.expires_in*1000,id);return t.access_token}
 async function api(id,route,method='GET',body){const t=await token(id);const r=await fetch('https://api.twitch.tv/helix/'+route,{method,headers:{'Client-Id':CID,Authorization:'Bearer '+t,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});const x=await r.text();if(!r.ok)throw Error('Twitch '+r.status+': '+x.slice(0,300));return x?JSON.parse(x):{}}
 const botId=()=>db.prepare("SELECT value FROM config WHERE key='bot_id'").get()?.value;
-const adminIds=new Set((process.env.BOT_ADMIN_TWITCH_IDS||process.env.BOT_ADMIN_TWITCH_ID||'').split(',').map(s=>s.trim()).filter(s=>/^\\d+$/.test(s)));
+const adminIds=new Set((process.env.BOT_ADMIN_TWITCH_IDS||process.env.BOT_ADMIN_TWITCH_ID||'').split(',').map(s=>s.trim()).filter(s=>/^[0-9]+$/.test(s)));
 const isOperator=id=>Boolean(id&&adminIds.has(String(id)));
 const BOT_SCOPES='user:read:chat user:write:chat user:bot moderator:manage:banned_users';
 const STREAMER_SCOPES=[
