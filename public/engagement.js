@@ -1,4 +1,4 @@
-// StreamNexus engagement dashboard — loaded alongside the main Studio UI.
+// KitsuFlowBOT engagement dashboard — loaded alongside the main Studio UI.
 (async()=>{
 const root=document.querySelector('#root'),notice=document.querySelector('#message');
 const api=async(url,method='GET',body)=>{const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});const data=await r.json();if(!r.ok)throw Error(data.error||'Request failed');return data};
