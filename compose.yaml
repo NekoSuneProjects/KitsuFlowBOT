@@ -1,6 +1,6 @@
 services:
   streamnexus:
-    build: .
+    image: ghcr.io/nekosuneprojects/streamnexus:latest
     restart: unless-stopped
     env_file: .env
     ports:
