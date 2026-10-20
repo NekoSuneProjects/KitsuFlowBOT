@@ -71,7 +71,7 @@ app.use(session({store:new Store({db:'sessions.sqlite',dir:'data'}),name:'sn.sid
 const withUser=(req,res,next)=>req.session.uid?next():res.status(401).json({error:'Login required'});
 const csrf=(req,res,next)=>{if(req.get('origin')!==BASE)return res.status(403).json({error:'Origin mismatch'});next()};
 const safe=fn=>(req,res,next)=>Promise.resolve(fn(req,res)).catch(e=>res.status(400).json({error:e.message}));
-app.get('/auth/:role',safe(async(req,res)=>{const role=req.params.role;if(!['streamer','bot'].includes(role))throw Error('Invalid role');if(role==='bot'&&!isOperator(req.session.uid))return res.status(403).send('Only the KitsuFlowBOT operator can link the global bot account. Set BOT_ADMIN_TWITCH_ID.');
+app.get('/auth/connect/:role',safe(async(req,res)=>{const role=req.params.role;if(!['streamer','bot'].includes(role))throw Error('Invalid role');if(role==='bot'&&!isOperator(req.session.uid))return res.status(403).send('Only the KitsuFlowBOT operator can link the global bot account. Set BOT_ADMIN_TWITCH_ID.');
 const state=crypto.randomBytes(24).toString('hex');req.session.oauth={state,role,owner:req.session.uid};
 const scope=role==='bot'?'user:read:chat user:write:chat user:bot moderator:manage:banned_users':'channel:bot clips:edit';
 const p=new URLSearchParams({client_id:CID,redirect_uri:BASE+'/auth/callback',response_type:'code',scope,state});res.redirect('https://id.twitch.tv/oauth2/authorize?'+p)}));
