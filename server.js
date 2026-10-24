@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import {installEngagement} from './engagement.js';
 import {installCreator} from './creator.js';
+import {installStreamActivity} from './stream-activity.js';
 import {installVoice} from './voice.js';
 import {installAccess} from './access.js';
 import {installPlatforms} from './platform-integrations.js';
@@ -73,7 +74,7 @@ const prev=sockets.get('bot');if(prev)prev.close();
 let ws=new WebSocket('wss://eventsub.wss.twitch.tv/ws');sockets.set('bot',ws);
 ws.on('message',async raw=>{try{const d=JSON.parse(raw);const type=d.metadata?.message_type;
 if(type==='session_reconnect'){ws.close();ws=new WebSocket(d.payload.session.reconnect_url);sockets.set('bot',ws);return}
-if(type==='notification'&&d.metadata.subscription_type==='channel.chat.message'){await message(d.payload.event);return}
+if(type==='notification'){if(d.metadata.subscription_type==='channel.chat.message'){await message(d.payload.event);return}const ev=d.payload.event||{};const target=String(ev.broadcaster_user_id||ev.to_broadcaster_user_id||'');if(target&&db.prepare('SELECT 1 FROM channels WHERE id=?').get(target))streamActivity.emit(target,'twitch',d.metadata.subscription_type,ev.user_name||ev.from_broadcaster_user_name||'',ev.message?.text||ev.tier||String(ev.bits||ev.viewers||''),d.metadata.message_id);return}
 if(type==='session_welcome'){const channels=db.prepare('SELECT id FROM channels WHERE enabled=1').all();for(const ch of channels){try{await api(id,'eventsub/subscriptions','POST',{type:'channel.chat.message',version:'1',condition:{broadcaster_user_id:ch.id,user_id:id},transport:{method:'websocket',session_id:d.payload.session.id}})}catch(err){log(ch.id,'error','EventSub: '+err.message)}}}
 }catch(e){console.error('EventSub',e.message)}});
 ws.on('close',()=>{if(sockets.get('bot')===ws)setTimeout(connectChat,5000)});ws.on('error',e=>console.error('WS',e.message))}
@@ -97,6 +98,8 @@ else{if(!s.owner||s.owner!==req.session.uid||!isOperator(s.owner))throw Error('O
 res.redirect('/dashboard')}));
 app.post('/logout',csrf,(req,res)=>req.session.destroy(()=>res.json({ok:true})));
 const access=installAccess({app,db,withUser,csrf,safe,log});
+const streamActivity=installStreamActivity({app,db,withUser,access});
+app.get('/api/admin/logs',withUser,(req,res)=>{if(!isOperator(req.session.uid))return res.status(403).json({error:'Operator access required'});res.set('Cache-Control','no-store').json(db.prepare('SELECT l.channel,c.login,l.event,l.detail,l.created FROM logs l LEFT JOIN channels c ON c.id=l.channel ORDER BY l.id DESC LIMIT 250').all())});
 const relay=installRelay({app,db,withUser,csrf,access,isOperator,log});
 relay.register('twitch',async(channel,text)=>say(channel,text));
 // Existing studio endpoints resolve the selected channel, not the login identity.
@@ -164,7 +167,7 @@ app.post('/api/moderate',withUser,access.channelOnly('bot_supervisor'),csrf,safe
 const engagement=installEngagement({app,db,withUser,csrf,safe,say,moderate,log,api});
 const creator=installCreator({app,db,withUser,csrf,safe,log,say});
 installVoice({app,db,withUser,csrf,access,api,clip,log,say});
-installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,relay});
+installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,relay,streamActivity});
 app.get('/dashboard',(req,res)=>{res.set('Cache-Control','no-store, max-age=0');return req.session.uid?res.sendFile(path.resolve('public/dashboard.html')):res.redirect('/login')});
 app.get('/login',(req,res)=>req.session.uid?res.redirect('/dashboard'):res.sendFile(path.resolve('public/login.html')));
 app.get('/api/build-info',(req,res)=>res.set('Cache-Control','no-store').json({version:process.env.GITHUB_SHA||process.env.APP_VERSION||'local',providers:['twitch','kick','vpzone']}));
