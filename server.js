@@ -10,6 +10,7 @@ import {installEngagement} from './engagement.js';
 import {installCreator} from './creator.js';
 import {installVoice} from './voice.js';
 import {installAccess} from './access.js';
+import {installPlatforms} from './platform-integrations.js';
 
 const PORT=Number(process.env.PORT||3000), BASE=(process.env.BASE_URL||'http://localhost:3000').replace(/\/$/,'');
 const CID=process.env.TWITCH_CLIENT_ID, SECRET=process.env.TWITCH_CLIENT_SECRET;
@@ -74,7 +75,7 @@ if(type==='notification'&&d.metadata.subscription_type==='channel.chat.message')
 if(type==='session_welcome'){const channels=db.prepare('SELECT id FROM channels WHERE enabled=1').all();for(const ch of channels){try{await api(id,'eventsub/subscriptions','POST',{type:'channel.chat.message',version:'1',condition:{broadcaster_user_id:ch.id,user_id:id},transport:{method:'websocket',session_id:d.payload.session.id}})}catch(err){log(ch.id,'error','EventSub: '+err.message)}}}
 }catch(e){console.error('EventSub',e.message)}});
 ws.on('close',()=>{if(sockets.get('bot')===ws)setTimeout(connectChat,5000)});ws.on('error',e=>console.error('WS',e.message))}
-const app=express();app.set('trust proxy',process.env.TRUST_PROXY==='true'?1:false);app.use(express.json({limit:'32kb'}));
+const app=express();app.set('trust proxy',process.env.TRUST_PROXY==='true'?1:false);app.use(express.json({limit:'256kb',verify:(req,res,buffer)=>{if(req.path==='/webhooks/kick')req.rawBody=Buffer.from(buffer)}}));
 const Store=SQLiteStoreFactory(session);
 app.use(session({store:new Store({db:'sessions.sqlite',dir:'data'}),name:'sn.sid',secret:process.env.SESSION_SECRET,resave:false,saveUninitialized:false,cookie:{httpOnly:true,sameSite:'lax',secure:BASE.startsWith('https:'),maxAge:86400000}}));
 const withUser=(req,res,next)=>req.session.uid?next():res.status(401).json({error:'Login required'});
@@ -159,4 +160,5 @@ app.post('/api/moderate',withUser,access.channelOnly('bot_supervisor'),csrf,safe
 const engagement=installEngagement({app,db,withUser,csrf,safe,say,moderate,log,api});
 const creator=installCreator({app,db,withUser,csrf,safe,log,say});
 installVoice({app,db,withUser,csrf,access,api,clip,log,say});
+installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE});
 app.use(express.static('public'));app.listen(PORT,()=>console.log('KitsuFlowBOT on '+PORT));connectChat();
