@@ -11,6 +11,27 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  db.exec(`CREATE TABLE IF NOT EXISTS platform_oauth(channel TEXT NOT NULL,platform TEXT NOT NULL,external_id TEXT NOT NULL,display_name TEXT NOT NULL,access_token TEXT NOT NULL,refresh_token TEXT NOT NULL,expires_at INTEGER NOT NULL,scopes TEXT NOT NULL,PRIMARY KEY(channel,platform));
  CREATE TABLE IF NOT EXISTS platform_delivery(platform TEXT NOT NULL,message_id TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(platform,message_id));`);
  db.exec("CREATE TABLE IF NOT EXISTS platform_bot_accounts(platform TEXT PRIMARY KEY,external_id TEXT NOT NULL,display_name TEXT NOT NULL,access_token TEXT NOT NULL,refresh_token TEXT NOT NULL,expires_at INTEGER NOT NULL)");
+ const vpCommandCooldowns=new Map();
+ async function handleVpzoneCommand(channel,username,body,raw){
+  const parts=body.trim().split(/\s+/);
+  const name=parts[0]?.toLowerCase();
+  if(!name?.startsWith('!'))return;
+  const key=name.slice(1);
+  if(!/^[a-z0-9_]{1,32}$/.test(key))return;
+  const cmd=db.prepare('SELECT name,response,cooldown,level FROM commands WHERE channel=? AND name=?').get(channel,key);
+  if(!cmd)return;
+  // Do not elevate viewers to moderator/subscriber; only unrestricted custom commands are safe here.
+  if(cmd.level!=='everyone')return;
+  const throttleKey=channel+':vpzone:'+key,now=Date.now();
+  if((vpCommandCooldowns.get(throttleKey)||0)>now)return;
+  const bot=db.prepare("SELECT 1 FROM platform_bot_accounts WHERE platform='vpzone'").get();
+  if(!bot)return;
+  vpCommandCooldowns.set(throttleKey,now+Math.max(0,Number(cmd.cooldown)||0)*1000);
+  const broadcaster=db.prepare("SELECT login FROM channels WHERE id=?").get(channel);
+  const reply=String(cmd.response).replaceAll('{user}',username).replaceAll('{channel}',broadcaster?.login||'').replaceAll('{args}',parts.slice(1).join(' ')).slice(0,450);
+  await vpzoneBotSay(channel,reply);
+  log(channel,'vpzone-command',key);
+ }
  const vpSockets=new Map();
  function vpzoneConnect(channel,slug){
   if(!/^[a-z0-9_-]{2,32}$/i.test(slug))return;
@@ -30,7 +51,10 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
      if(!username||!body)return;
      const bot=db.prepare("SELECT external_id,display_name FROM platform_bot_accounts WHERE platform='vpzone'").get();
      const isBot=Boolean(bot&&(String(item.user_id||item.sender?.id||'')===bot.external_id||username.toLowerCase()===bot.display_name.toLowerCase()));
-     void relay.relay(channel,'vpzone',username,body,{isBot}).catch(err=>log(channel,'vpzone-relay-error',err.message));
+     if(!isBot){
+      void relay.relay(channel,'vpzone',username,body,{isBot:false}).catch(err=>log(channel,'vpzone-relay-error',err.message));
+      void handleVpzoneCommand(channel,username,body,item).catch(err=>log(channel,'vpzone-command-error',err.message));
+     }
     }catch(err){log(channel,'vpzone-event-error',err.message)}
    });
    ws.on('error',err=>log(channel,'vpzone-ws-error',err.message));
