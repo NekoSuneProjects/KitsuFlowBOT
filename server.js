@@ -10,6 +10,8 @@ import {installEngagement} from './engagement.js';
 import {installCreator} from './creator.js';
 import {installVoice} from './voice.js';
 import {installAccess} from './access.js';
+import {installPlatforms} from './platform-integrations.js';
+import {installRelay} from './chat-relay.js';
 
 const PORT=Number(process.env.PORT||3000), BASE=(process.env.BASE_URL||'http://localhost:3000').replace(/\/$/,'');
 const CID=process.env.TWITCH_CLIENT_ID, SECRET=process.env.TWITCH_CLIENT_SECRET;
@@ -50,6 +52,7 @@ async function clip(channel){const data=await api(channel,'clips?broadcaster_id=
 const cooldowns=new Map();
 const allowed=(level,e)=>level==='everyone'||e.badges?.some(b=>b.set_id==='broadcaster'||b.set_id==='moderator')||(level==='subscriber'&&e.badges?.some(b=>b.set_id==='subscriber'));
 async function message(e){const ch=db.prepare('SELECT * FROM channels WHERE id=? AND enabled=1').get(e.broadcaster_user_id);if(!ch||e.chatter_user_id===botId())return;
+void relay.relay(ch.id,'twitch',e.chatter_user_login,e.message?.text||'',{isBot:false}).catch(err=>log(ch.id,'relay-error',err.message));
 const value=(e.message?.text||'').trim(),parts=value.split(/\s+/),cmd=parts[0]?.toLowerCase(),isMod=e.badges?.some(b=>b.set_id==='moderator'||b.set_id==='broadcaster');
 if(ch.links&&!isMod&&/https?:\/\/|(?:[a-z0-9-]+\.)+(?:com|net|org|xyz|click|shop|ru|co\.uk)\b/i.test(value)){try{await moderate(ch.id,e.chatter_user_id,60,'Unapproved URL');log(ch.id,'timeout',e.chatter_user_login+' URL')}catch(err){log(ch.id,'error',err.message)}return}
 try{
@@ -74,7 +77,7 @@ if(type==='notification'&&d.metadata.subscription_type==='channel.chat.message')
 if(type==='session_welcome'){const channels=db.prepare('SELECT id FROM channels WHERE enabled=1').all();for(const ch of channels){try{await api(id,'eventsub/subscriptions','POST',{type:'channel.chat.message',version:'1',condition:{broadcaster_user_id:ch.id,user_id:id},transport:{method:'websocket',session_id:d.payload.session.id}})}catch(err){log(ch.id,'error','EventSub: '+err.message)}}}
 }catch(e){console.error('EventSub',e.message)}});
 ws.on('close',()=>{if(sockets.get('bot')===ws)setTimeout(connectChat,5000)});ws.on('error',e=>console.error('WS',e.message))}
-const app=express();app.set('trust proxy',process.env.TRUST_PROXY==='true'?1:false);app.use(express.json({limit:'32kb'}));
+const app=express();app.set('trust proxy',process.env.TRUST_PROXY==='true'?1:false);app.use(express.json({limit:'256kb',verify:(req,res,buffer)=>{if(req.path==='/webhooks/kick')req.rawBody=Buffer.from(buffer)}}));
 const Store=SQLiteStoreFactory(session);
 app.use(session({store:new Store({db:'sessions.sqlite',dir:'data'}),name:'sn.sid',secret:process.env.SESSION_SECRET,resave:false,saveUninitialized:false,cookie:{httpOnly:true,sameSite:'lax',secure:BASE.startsWith('https:'),maxAge:86400000}}));
 const withUser=(req,res,next)=>req.session.uid?next():res.status(401).json({error:'Login required'});
@@ -91,9 +94,11 @@ db.prepare('INSERT INTO accounts(id,login,display,access,refresh,expires,scopes)
 if(s.role==='bot'&&u.id===s.owner)throw Error('A separate bot Twitch account is required; do not authorise your admin streamer account as the bot.');
 if(s.role==='streamer'){req.session.uid=u.id;db.prepare('INSERT INTO channels(id,login) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET login=excluded.login').run(u.id,u.login)}
 else{if(!s.owner||s.owner!==req.session.uid||!isOperator(s.owner))throw Error('Only the KitsuFlowBOT operator may configure the shared bot');db.prepare("INSERT INTO config(key,value) VALUES('bot_id',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(u.id);connectChat()}
-res.redirect('/')}));
+res.redirect('/dashboard')}));
 app.post('/logout',csrf,(req,res)=>req.session.destroy(()=>res.json({ok:true})));
 const access=installAccess({app,db,withUser,csrf,safe,log});
+const relay=installRelay({app,db,withUser,csrf,access,isOperator,log});
+relay.register('twitch',async(channel,text)=>say(channel,text));
 // Existing studio endpoints resolve the selected channel, not the login identity.
 app.use(['/api/state','/api/settings','/api/commands','/api/clip','/api/moderate','/api/engagement','/api/creator'],withUser,(req,res,next)=>{const channel=access.channelFor(req);if(!channel)return res.status(403).json({error:'No channel access'});if(req.method!=='GET'){const required=req.path.startsWith('/api/moderate')||req.path.startsWith('/api/settings')||req.path.startsWith('/api/clip')||req.path.startsWith('/api/creator/queue')||req.path.startsWith('/api/creator/campaign/draw')||req.path.startsWith('/api/creator/redeem')?'bot_supervisor':'editor';if(!access.can(req.session.uid,channel,required))return res.status(403).json({error:'Insufficient channel permissions'});}req.channelId=channel;next()});
 app.get('/api/admin/overview',withUser,(req,res)=>{if(!isOperator(req.session.uid))return res.status(403).json({error:'Operator access required'});const b=getAccount(botId());const channels=db.prepare('SELECT id,login,enabled FROM channels ORDER BY login').all();res.set('Cache-Control','no-store').json({operator:true,bot:b?{id:b.id,login:b.login,display:b.display,expires:b.expires,scopes:JSON.parse(b.scopes||'[]')}:null,channels,enabled_count:channels.filter(x=>x.enabled).length,connection_status:b?(sockets.get('bot')?.readyState===1?'connected':'disconnected'):'not_configured'});});
@@ -159,4 +164,7 @@ app.post('/api/moderate',withUser,access.channelOnly('bot_supervisor'),csrf,safe
 const engagement=installEngagement({app,db,withUser,csrf,safe,say,moderate,log,api});
 const creator=installCreator({app,db,withUser,csrf,safe,log,say});
 installVoice({app,db,withUser,csrf,access,api,clip,log,say});
-app.use(express.static('public'));app.listen(PORT,()=>console.log('KitsuFlowBOT on '+PORT));connectChat();
+installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,relay});
+app.get('/dashboard',(req,res)=>req.session.uid?res.sendFile(path.resolve('public/dashboard.html')):res.redirect('/login'));
+app.get('/login',(req,res)=>req.session.uid?res.redirect('/dashboard'):res.sendFile(path.resolve('public/login.html')));
+app.use(express.static('public',{index:'index.html',redirect:false}));app.listen(PORT,()=>console.log('KitsuFlowBOT on '+PORT));connectChat();

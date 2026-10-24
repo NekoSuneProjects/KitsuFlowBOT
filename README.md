@@ -131,3 +131,48 @@ This branch introduces **server-side Twitch live-stream audio recognition**, so 
 - The voice Docker service is opt-in (`profiles: [voice]`), runs as unprivileged UID, has CPU and memory limits, and defaults to one simultaneously monitored channel. Higher concurrency needs more CPU/RAM and separately provisioned workers.
 - If Twitch playback changes or Streamlink loses access, recognition will fail until the integration is updated; Twitch Helix does not provide an HLS URL.
 - This implementation is an **initial beta**, not live-tested. The speech model must be installed explicitly. Do not enable on hundreds of channels without durable work queues, per-stream status reporting, retries/backoff, resource accounting and tests.
+
+## Kick and VPZone connections (beta)
+
+The Studio **Connections** page now supports two additional OAuth 2.1 broadcaster connections, independently of Twitch. Each is scoped to the currently selected, owner-controlled channel; neither replaces the dedicated Twitch bot account.
+
+**Kick:** Register an app at https://dev.kick.com and set `KICK_CLIENT_ID` / `KICK_CLIENT_SECRET`. Register the exact callback `https://kitsuflowbot.nekosunevr.co.uk/auth/platform/callback/kick`. The connection requests `user:read channel:read events:subscribe` with S256 PKCE and encrypts tokens at rest. Kick webhook endpoint: `https://kitsuflowbot.nekosunevr.co.uk/webhooks/kick`. Configure the webhook URL in Kick developer settings. The receiver verifies the signed raw payload against Kick's rotating public key, checks message timestamps and deduplicates message IDs. It stores verified messages in the existing platform event/activity and overlay tables **when the Kick broadcaster ID matches a connected channel**. **Event subscriptions must still be created through Kick's Events Subscriptions API**; configuring a webhook URL alone is not enough for live alerts.
+
+**VPZone:** Register a confidential OAuth app at https://vpzone.tv/developers/oauth and configure `VPZONE_CLIENT_ID` / `VPZONE_CLIENT_SECRET`. Register exact callback `https://kitsuflowbot.nekosunevr.co.uk/auth/platform/callback/vpzone`. OAuth 2.1 requires S256 PKCE for confidential apps too; rotating refresh tokens are encrypted at rest. KitsuFlowBOT reads `/api/v1/me` and uses the returned **channel slug** (not username) for a channel lookup. This first version supports connecting/disconnecting the account and authorised channel reads; VPZone realtime WebSocket/chat, registered signed webhooks and automated follower/cheer/subscription overlays require a follow-up provider adapter and are **not** enabled yet.
+
+Do not paste user API keys into the UI or GitHub. Configure server-side OAuth application credentials in an uncommitted `.env` file and restart Docker. Existing Twitch bot/moderation, loyalty and Streamlink clipping stay Twitch-specific until corresponding Kick and VPZone adapters are independently developed and tested.
+
+**Release warning:** these integrations have been code-authored but not end-to-end tested against real Kick/VPZone accounts. Confirm response schemas, registration, refresh, webhook subscriptions and events in a staging environment before production.
+
+## Public homepage and unified creator profile
+
+- `/`: public KitsuFlowBOT information homepage, accessible without signing in.
+- `/login`: Twitch sign-in page. Twitch remains the **single primary sign-in**.
+- `/dashboard`: creator Studio, requires a Twitch session; unauthenticated visitors are redirected to `/login`.
+- Kick and VPZone are **linked streaming accounts**, not separate KitsuFlowBOT login identities. They attach to the active Twitch-owned creator channel and return to `/dashboard` after OAuth.
+- The existing commands, timers, loyalty data, overlays and settings remain associated with the primary Twitch creator channel; connecting an additional provider does not copy or reset them.
+
+**Cross-platform execution limitation:** These shared settings become the source of truth for additional platform adapters, but Kick and VPZone commands are **not yet executed or sent in their respective chats**. Their respective incoming chat events, outgoing messaging and permission mapping must be implemented and tested before cross-platform commands, timers and moderation become active. Kick verified webhook events may populate the common activity/overlay store after Kick event subscriptions are configured. Do not promise that Twitch-only moderation or clipping transfers to other platforms.
+
+## Kick bot messages and multi-platform voice trigger beta
+
+The linked Kick channel now has a dashboard **Send via Kick bot** test action. It uses a Kick OAuth client-credentials **application token** and the documented `POST https://api.kick.com/public/v1/chat` with `{content,type:"bot"}`, matching the implementation pattern in the private `NekoSuneProjectsPrivate/StreamBOT` repository's `backendlive/src/kickBot.ts`. It does not impersonate the Twitch bot, and the Kick API/app must permit bot chat posting. Do not send a message to any channel without a linked and authorised Kick broadcaster. Chat command listeners for Kick still require webhook subscriptions and dispatch routing.
+
+**Voice & Clips:** The same Docker worker may opt into separate Kick and VPZone stream-audio processing with a trigger phrase and cooldown per platform. The platform source is constructed exclusively from the authorised linked channel slug and the fixed Kick or VPZone host, and the backend verifies the linked account and opt-in status. The worker uses Streamlink → FFmpeg → offline Vosk, so Firefox needs no microphone API.
+
+**Important: Voice trigger detection is not native clip creation.** The publicly documented Kick API has no official clip creation endpoint as of October 2026, and VPZone's API documents clips **read/list** but not a create endpoint. Successful recognition on Kick or VPZone is recorded as `trigger_detected_native_clips_api_unavailable`, not as a new clip. Do not claim a successful clip or invent a provider endpoint. Playback discovery for Kick and especially VPZone is not guaranteed supported by Streamlink; if it fails, the worker stops that source and retries on the next scheduler cycle. Verify provider permissions, publicly accessible live playback, CPU limits and worker logs before enabling. This is beta, not a production-ready automatic Kick/VPZone clipping solution. A supported OBS local recorder/rolling-buffer adapter would provide a better cross-platform clip-creation backend.
+
+## Multi-platform shared bots and chat relay — implementation notes
+
+Private reference reviewed: `NekoSuneProjectsPrivate/StreamBOT`, branch `backendlive`, notably `.env.example`, `src/kickBot.ts`, `src/kickTokens.ts` and `src/index.ts`. Its Kick implementation contains configurable scopes, optional Pusher realtime subscriptions, webhook handling, anti-spam settings, and Twitch↔Kick relay directions. Only the independently appropriate configuration and officially authenticated message posting patterns were carried into this PR. The Pusher websocket URL is documented as a reference, not enabled, and raw-message logging remains disabled.
+
+In **Admin Panel → Shared Kick / VPZone bot accounts**, platform admins can initiate a separate OAuth PKCE flow for a dedicated bot identity and revoke the connection; broadcaster accounts remain linked to their own Twitch-owned creator profile. Platform bot tokens are encrypted in SQLite, and connecting a bot identity already linked as a broadcaster is rejected. Register these additional developer-app redirect URLs:
+
+- `https://kitsuflowbot.nekosunevr.co.uk/auth/platform-bot/callback/kick`
+- `https://kitsuflowbot.nekosunevr.co.uk/auth/platform-bot/callback/vpzone`
+
+Kick's application-token **bot** chat posting remains the supported active send method; the newly linked user bot identity is stored but not yet used to send. VPZone bot authorization is implemented as an identity link, **not working chat sending**, until VPZone's official write endpoint and permissions are verified.
+
+Studio → Connections → **Cross-platform chat relay** offers directional per-channel toggles for Twitch, Kick, VPZone. All toggles default to **disabled**. The relay engine labels messages, limits length, suppresses duplicate content and ignores already-relayed messages to avoid loops. Twitch and Kick are registered output transports; VPZone is not registered until its official send API is added. Kick incoming chat requires a Kick subscription that actually delivers signed `chat.message.sent` or `chat.message.created` webhooks; installing a webhook endpoint by itself does not complete event subscriptions. The legacy Pusher listener is **not** implemented in this PR, so Kick-to-Twitch relay must not be assumed live. Do not enable public cross-posting without permission from each connected channel and moderators.
+
+This remains a draft/beta requiring manual OAuth, event schema, relay, and rate-limit tests. 

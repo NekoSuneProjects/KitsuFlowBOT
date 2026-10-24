@@ -17,6 +17,7 @@ jobs:
       - name: Verify JavaScript syntax
         run: |
           node --check public/studio.js
+          node --check platform-integrations.js
           node --check voice.js
           python3 -m py_compile voice-worker.py
       - name: Verify required Studio assets
