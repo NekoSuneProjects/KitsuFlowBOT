@@ -4,6 +4,7 @@ import json
 import math
 import struct
 import os
+import tempfile
 import re
 import queue
 import sys
@@ -21,10 +22,11 @@ ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) el
 ENV = ROOT / ".env"
 DEFAULTS = {"KITSUFLOW_URL": "https://kitsuflowbot.nekosunevr.co.uk",
             "KITSUFLOW_DEVICE_KEY": "", "KITSUFLOW_VOSK_MODEL": "model/vask",
-            "KITSUFLOW_MIC_DEVICE": "", "KITSUFLOW_TRIGGER_SOUND": "true", "KITSUFLOW_STT_ENGINE": "whisper", "KITSUFLOW_WHISPER_MODEL": "auto"}
+            "KITSUFLOW_MIC_DEVICE": "", "KITSUFLOW_MIC_NAME": "", "KITSUFLOW_SHOW_ALL_MICS": "false", "KITSUFLOW_WHISPER_BACKEND": "auto", "KITSUFLOW_TRIGGER_SOUND": "true", "KITSUFLOW_STT_ENGINE": "whisper", "KITSUFLOW_WHISPER_MODEL": "auto"}
 
 def read_env():
     values = DEFAULTS.copy()
+    saved_keys = set()
     if ENV.exists():
         for line in ENV.read_text(encoding="utf-8-sig").splitlines():
             line = line.strip()
@@ -32,9 +34,17 @@ def read_env():
                 continue
             key, value = line.split("=", 1)
             if key.strip() in values:
-                values[key.strip()] = value.strip().strip('"').strip("'")
+                saved_keys.add(key.strip())
+                raw = value.strip()
+                if raw.startswith('"'):
+                    try:
+                        values[key.strip()] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        values[key.strip()] = raw.strip('"')
+                else:
+                    values[key.strip()] = raw.strip("'")
     for key in values:
-        if os.environ.get(key):
+        if key not in saved_keys and os.environ.get(key):
             values[key] = os.environ[key]
     return values
 
@@ -43,9 +53,21 @@ def save_env(values):
         return '"' + str(v).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "") + '"'
     text = "# KitsuFlow Voice Companion - keep this file private\n" + "".join(
         key + "=" + quote(values.get(key, "")) + "\n" for key in DEFAULTS)
-    ENV.write_text(text, encoding="utf-8")
-    if os.name != "nt":
-        ENV.chmod(0o600)
+    ENV.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=ENV.parent,
+                                         prefix=".kitsuflow-", suffix=".tmp", delete=False) as stream:
+            temp_path = Path(stream.name)
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if os.name != "nt":
+            temp_path.chmod(0o600)
+        os.replace(temp_path, ENV)
+    finally:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink()
 
 def request(server, token, endpoint, payload=None):
     if not server.startswith("https://") and not server.startswith("http://localhost:"):
@@ -74,7 +96,8 @@ class App:
         self.trigger_sound = tk.BooleanVar(value=self.settings.get('KITSUFLOW_TRIGGER_SOUND','true').lower() in ('true','1','yes'))
         self.device = tk.StringVar()
         self.devices = {"System default": None}
-        self.show_all_mics = tk.BooleanVar(value=False)
+        self.show_all_mics = tk.BooleanVar(value=self.settings.get("KITSUFLOW_SHOW_ALL_MICS", "false").lower() in ("true","1","yes"))
+        self.whisper_backend = tk.StringVar(value=self.settings.get("KITSUFLOW_WHISPER_BACKEND", "auto"))
         self.inbox = queue.Queue()
         self.stop = threading.Event()
         self.thread = None
@@ -195,6 +218,11 @@ class App:
         canvas = tk.Canvas(settings_page, bg=bg, highlightthickness=0, borderwidth=0)
         scrollbar = ttk.Scrollbar(settings_page, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=scrollbar.set)
+        self.settings_canvas = canvas
+        self.settings_page = settings_page
+        self.root.bind_all("<MouseWheel>", self.scroll_settings, add="+")
+        self.root.bind_all("<Button-4>", self.scroll_settings, add="+")
+        self.root.bind_all("<Button-5>", self.scroll_settings, add="+")
         scrollbar.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
         content = ttk.Frame(canvas, style="App.TFrame", padding=(0, 0, 12, 10))
@@ -219,6 +247,9 @@ class App:
         ttk.Combobox(recognition, textvariable=self.engine, values=["whisper", "vosk"], state="readonly").pack(fill="x")
         ttk.Label(recognition, text="Whisper model (auto detects hardware)").pack(anchor="w", pady=(9, 4))
         ttk.Combobox(recognition, textvariable=self.whisper_model, values=["auto", *MODELS], state="readonly").pack(fill="x")
+        ttk.Label(recognition, text="Whisper processing (Auto / CPU / CUDA GPU)").pack(anchor="w", pady=(9, 4))
+        ttk.Combobox(recognition, textvariable=self.whisper_backend, values=["auto", "cpu", "cuda"], state="readonly").pack(fill="x")
+        ttk.Label(recognition, text="GTX 980 Ti: Auto uses CPU with current faster-whisper. NVENC video encoding is separate.", style="Muted.TLabel").pack(anchor="w", pady=(6, 0))
         ttk.Label(recognition, text="Offline Vosk model folder").pack(anchor="w", pady=(9, 4))
         modelrow = ttk.Frame(recognition, style="Card.TFrame")
         modelrow.pack(fill="x")
@@ -251,6 +282,17 @@ class App:
         self.pages[name].pack(fill="both", expand=True)
         for label, button in self.page_buttons.items():
             button.configure(style="NavActive.TButton" if label == name else "Nav.TButton")
+
+    def scroll_settings(self, event):
+        if not self.pages["Settings"].winfo_ismapped():
+            return
+        widget = self.root.winfo_containing(event.x_root, event.y_root)
+        if widget is None or not str(widget).startswith(str(self.settings_page)):
+            return
+        direction = (-1 if event.num == 4 else 1 if event.num == 5 else
+                     -1 if event.delta > 0 else 1)
+        self.settings_canvas.yview_scroll(direction * 3, "units")
+        return "break"
 
     def clear_log(self):
         self.log.configure(state="normal")
@@ -350,6 +392,7 @@ class App:
             raw = sd.query_devices()
             apis = sd.query_hostapis()
             saved = self.devices.get(self.device.get())
+            saved_name = self.settings.get("KITSUFLOW_MIC_NAME", "")
             persisted = self.settings.get("KITSUFLOW_MIC_DEVICE", "")
             devices = {"System default": None}
             candidates = []
@@ -386,8 +429,10 @@ class App:
             self.micbox["values"] = list(devices)
             target = saved if saved is not None else (
                 int(persisted) if persisted.isdigit() else None)
-            chosen = next((label for label, index in devices.items()
-                           if index is not None and index == target), None)
+            chosen = next((label for label in devices if label == saved_name), None)
+            if chosen is None:
+                chosen = next((label for label, index in devices.items()
+                               if index is not None and index == target), None)
             if chosen is None and target is not None:
                 self.push("Previously selected microphone is hidden/unavailable; choose a visible device.")
             self.device.set(chosen or "System default")
@@ -402,13 +447,18 @@ class App:
                 "KITSUFLOW_DEVICE_KEY": self.key.get().strip(),
                 "KITSUFLOW_VOSK_MODEL": self.model.get().strip(),
                 "KITSUFLOW_MIC_DEVICE": "" if selected is None else str(selected),
+                "KITSUFLOW_MIC_NAME": self.device.get() if selected is not None else "",
                 "KITSUFLOW_TRIGGER_SOUND": "true" if self.trigger_sound.get() else "false",
+                "KITSUFLOW_SHOW_ALL_MICS": "true" if self.show_all_mics.get() else "false",
+                "KITSUFLOW_WHISPER_BACKEND": self.whisper_backend.get(),
                 "KITSUFLOW_STT_ENGINE": self.engine.get(), "KITSUFLOW_WHISPER_MODEL": self.whisper_model.get()}
 
     def save(self):
         try:
-            save_env(self.values())
-            self.push("Settings saved to " + str(ENV))
+            values = self.values()
+            save_env(values)
+            self.settings = values.copy()
+            self.push("All settings saved to " + str(ENV))
         except Exception as exc:
             messagebox.showerror("Cannot save settings", str(exc))
 
@@ -477,11 +527,12 @@ class App:
                 model_folder = cache_dir(ROOT, selected_model)
                 if not model_complete(model_folder):
                     raise RuntimeError("Whisper model is incomplete. Press Download selected model to repair it.")
-                device, precision = backend(self.gpu)
+                preference = values.get("KITSUFLOW_WHISPER_BACKEND", "auto")
+                device, precision = backend(self.gpu, preference)
                 try:
                     model = WhisperModel(str(model_folder), device=device, compute_type=precision)
                 except (RuntimeError, ValueError, OSError) as gpu_error:
-                    if device != "cuda": raise
+                    if device != "cuda" or preference == "cuda": raise
                     send("log", "GPU backend unavailable: " + str(gpu_error)[:160] + ". Falling back to CPU.")
                     device, precision = "cpu", "int8"
                     model = WhisperModel(str(model_folder), device=device, compute_type=precision)
