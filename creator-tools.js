@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import {isIP} from 'node:net';
+const envAi=()=>({endpoint:String(process.env.AI_TITLE_API_URL||'').trim(),model:String(process.env.AI_TITLE_MODEL||'').trim(),key:String(process.env.AI_TITLE_API_KEY||'').trim()});
 const hash=v=>crypto.createHash('sha256').update(v).digest('hex');
 const allowedHost=raw=>{
  const u=new URL(raw);
@@ -21,7 +22,8 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
  const setProviderStatus=fn=>{providerStatus=fn};
  app.get('/api/creator-ai',withUser,access.channelOnly('owner'),(req,res)=>{
   const row=db.prepare('SELECT endpoint,model,key_encrypted FROM creator_ai_settings WHERE channel=?').get(req.channelId);
-  res.set('Cache-Control','no-store').json({endpoint:row?.endpoint||'',model:row?.model||'',hasKey:Boolean(row?.key_encrypted)});
+  const configured=envAi();
+  res.set('Cache-Control','no-store').json({endpoint:row?.endpoint||configured.endpoint||'',model:row?.model||configured.model||'',hasKey:Boolean(row?.key_encrypted||configured.key),source:row?'channel':'server',serverConfigured:Boolean(configured.endpoint&&configured.model)});
  });
  app.post('/api/creator-ai',...owner,(req,res)=>{
   try{
@@ -36,12 +38,17 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
  });
  app.post('/api/creator-ai/suggest',...owner,async(req,res)=>{
   const row=db.prepare('SELECT * FROM creator_ai_settings WHERE channel=?').get(req.channelId);
-  if(!row)return res.status(409).json({error:'Configure the assistant endpoint first'});
+  const fromEnv=envAi();
+  const active=row?{endpoint:row.endpoint,model:row.model,key:dec(row.key_encrypted),serverManaged:false}:{...fromEnv,serverManaged:true};
+  if(!active.endpoint||!active.model)return res.status(409).json({error:'Configure AI_TITLE_API_URL and AI_TITLE_MODEL on the server, or save a provider in Studio'});
   const game=String(req.body?.game||'').trim().slice(0,90),context=String(req.body?.context||'').trim().slice(0,200);
   if(!game)return res.status(400).json({error:'Enter the game/category first'});
   try{
-   const url=allowedHost(row.endpoint);
-   const response=await fetch(url,{method:'POST',redirect:'error',headers:{Authorization:'Bearer '+dec(row.key_encrypted),'Content-Type':'application/json'},body:JSON.stringify({model:row.model,temperature:0.7,max_tokens:120,messages:[{role:'system',content:'Return only one catchy, discoverable live stream title, plain text, at most 110 characters. Mention the actual supplied game, avoid misleading claims, giveaways or hashtags spam, profanity and platform-policy violations. Never claim something untrue. No quotation marks.'},{role:'user',content:'Game: '+game+'\nExtra context: '+context}]}),signal:AbortSignal.timeout(18000)});
+   // Administrator-controlled env endpoints may be private HTTP Docker/Ollama URLs.
+   // User-supplied dashboard endpoints retain the public HTTPS validation rule.
+   const url=active.serverManaged?new URL(active.endpoint).toString():allowedHost(active.endpoint);
+   if(active.serverManaged&&!['http:','https:'].includes(new URL(url).protocol))throw Error('Invalid server AI URL scheme');
+   const response=await fetch(url,{method:'POST',redirect:'error',headers:{...(active.key?{Authorization:'Bearer '+active.key}:{}),'Content-Type':'application/json'},body:JSON.stringify({model:active.model,temperature:0.7,max_tokens:120,messages:[{role:'system',content:'Return only one catchy, discoverable live stream title, plain text, at most 110 characters. Mention the actual supplied game, avoid misleading claims, giveaways or hashtags spam, profanity and platform-policy violations. Never claim something untrue. No quotation marks.'},{role:'user',content:'Game: '+game+'\nExtra context: '+context}]}),signal:AbortSignal.timeout(18000)});
    if(!response.ok)return res.status(502).json({error:'AI provider HTTP '+response.status});
    const payload=await response.json();
    const title=String(payload.choices?.[0]?.message?.content||'').trim().replace(/^[\"']|[\"']$/g,'').replace(/[\r\n]+/g,' ').slice(0,110);
