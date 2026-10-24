@@ -26,6 +26,7 @@ export function installRelay({app,db,withUser,csrf,access,isOperator,log}) {
  app.post('/api/relay',withUser,access.channelOnly('owner'),csrf,(req,res)=>{
   const {source,target,enabled}=req.body||{};
   if(!supported.has(source)||!supported.has(target)||source===target||typeof enabled!=='boolean')return res.status(400).json({error:'Invalid relay route'});
+  if(enabled&&target==='vpzone')return res.status(409).json({error:'VPZone outgoing chat adapter is not implemented yet'});
   if(source!=='twitch'&&!db.prepare('SELECT 1 FROM platform_oauth WHERE channel=? AND platform=?').get(req.channelId,source))return res.status(409).json({error:'Source platform not linked'});
   if(target!=='twitch'&&!db.prepare('SELECT 1 FROM platform_oauth WHERE channel=? AND platform=?').get(req.channelId,target))return res.status(409).json({error:'Target platform not linked'});
   db.prepare('INSERT INTO chat_relay_settings(channel,source,target,enabled) VALUES(?,?,?,?) ON CONFLICT(channel,source,target) DO UPDATE SET enabled=excluded.enabled').run(req.channelId,source,target,enabled?1:0);
