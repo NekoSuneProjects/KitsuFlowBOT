@@ -88,6 +88,11 @@ async function connections(){
  }
  const kickReader=card('Kick incoming chat','Kick commands require a chat.message.sent event subscription and a reachable signed webhook.');
  kickReader.append(e('div',runtime?.kick?.subscription_active?'Subscription registered: '+(runtime.kick.detail||'ready'):'Subscription not confirmed: '+(runtime?.kick?.detail||'Not checked'),'description'),actions(btn('Register / retry Kick chat subscription',async()=>{const x=await api('/api/platforms/kick/subscribe','POST',{});notify('Kick subscription: '+x.status+' — '+x.detail);await reloadView()},'primary')));
+ const kickScopes=await api('/api/platforms/kick/scopes').catch(()=>null);
+ if(kickScopes?.linked){
+  kickReader.append(e('div','Requested Kick scopes: '+kickScopes.requested.join(', '),'tiny'),e('div','Stored Kick OAuth scopes: '+(kickScopes.stored.join(', ')||'(none)'),'tiny'));
+  if(kickScopes.requiresReauthorisation)kickReader.append(e('div','Your existing Kick OAuth connection does not contain events:subscribe. Updating .env does not modify an existing OAuth grant.','empty'),actions(link('Reauthorise Kick broadcaster','/auth/platform/kick','primary')));
+ }
  const botChat=card('Kick application bot chat','Send using Kick developer application bot mode (type: bot). This is not the streamer or a separate user account.');
  const msg=input('Test message','KitsuFlowBOT connected to Kick');
  botChat.append(msg.node,actions(btn('Send via Kick bot',async()=>{await api('/api/platforms/kick/chat','POST',{message:msg.value()});notify('Kick application bot message sent')},'primary')));
