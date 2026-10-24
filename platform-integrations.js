@@ -99,12 +99,14 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
    if(!response.ok)throw Error('List subscriptions HTTP '+response.status);
    const data=await response.json();
    const rows=Array.isArray(data.data)?data.data:Array.isArray(data.data?.subscriptions)?data.data.subscriptions:[];
-   const existing=rows.some(x=>x.event==='chat.message.sent'||x.name==='chat.message.sent'||x.event?.name==='chat.message.sent');
-   if(existing)return status('subscribed','Existing chat.message.sent subscription');
-   const created=await fetch(url,{method:'POST',headers,body:JSON.stringify({broadcaster_user_id:Number(account.external_id),method:'webhook',events:[{name:'chat.message.sent',version:1}]}),signal:AbortSignal.timeout(12000)});
-   if(!created.ok)throw Error('Create chat subscription HTTP '+created.status+' '+(await created.text()).slice(0,150));
-   status('subscribed','chat.message.sent subscription requested');
-   log(channel,'kick-chat-subscription','registered');
+   const wanted=['chat.message.sent','channel.followed','channel.subscription.new','channel.subscription.renewal','channel.subscription.gifts','kicks.gifted'];
+   const existing=new Set(rows.map(x=>String(x.event?.name||x.event||x.name||'')));
+   const missing=wanted.filter(name=>!existing.has(name));
+   if(!missing.length)return status('subscribed','Chat and engagement subscriptions already registered');
+   const created=await fetch(url,{method:'POST',headers,body:JSON.stringify({broadcaster_user_id:Number(account.external_id),method:'webhook',events:missing.map(name=>({name,version:1}))}),signal:AbortSignal.timeout(12000)});
+   if(!created.ok)throw Error('Create Kick subscriptions HTTP '+created.status+' '+(await created.text()).slice(0,150));
+   status('subscribed','Chat and engagement subscriptions requested: '+missing.join(', '));
+   log(channel,'kick-event-subscriptions','registered: '+missing.join(', '));
   }catch(err){status('error',err.message);log(channel,'kick-subscription-error',err.message)}
  }
  const conf=type=>{const p=providers[type];if(!p)return null;return {...p,clientId:process.env[p.client],clientSecret:process.env[p.secret]}};
