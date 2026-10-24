@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import {WebSocket} from 'ws';
 const providers={
  kick:{auth:'https://id.kick.com/oauth/authorize',token:'https://id.kick.com/oauth/token',client:'KICK_CLIENT_ID',secret:'KICK_CLIENT_SECRET',scope:process.env.KICK_AUTH_SCOPES||'user:read channel:read channel:write chat:write events:subscribe moderation:ban'},
- vpzone:{auth:'https://vpzone.tv/oauth/authorize',token:'https://vpzone.tv/api/oauth/token',client:'VPZONE_CLIENT_ID',secret:'VPZONE_CLIENT_SECRET',scope:'profile:read dashboard:read chat:read'}
+ vpzone:{auth:'https://vpzone.tv/oauth/authorize',token:'https://vpzone.tv/api/oauth/token',client:'VPZONE_CLIENT_ID',secret:'VPZONE_CLIENT_SECRET',scope:'profile:read dashboard:read chat:read chat:write'}
 };
 const clean=s=>String(s??'').slice(0,250);
 const pkce=()=>crypto.randomBytes(48).toString('base64url');
@@ -11,6 +11,27 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  db.exec(`CREATE TABLE IF NOT EXISTS platform_oauth(channel TEXT NOT NULL,platform TEXT NOT NULL,external_id TEXT NOT NULL,display_name TEXT NOT NULL,access_token TEXT NOT NULL,refresh_token TEXT NOT NULL,expires_at INTEGER NOT NULL,scopes TEXT NOT NULL,PRIMARY KEY(channel,platform));
  CREATE TABLE IF NOT EXISTS platform_delivery(platform TEXT NOT NULL,message_id TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(platform,message_id));`);
  db.exec("CREATE TABLE IF NOT EXISTS platform_bot_accounts(platform TEXT PRIMARY KEY,external_id TEXT NOT NULL,display_name TEXT NOT NULL,access_token TEXT NOT NULL,refresh_token TEXT NOT NULL,expires_at INTEGER NOT NULL)");
+ const vpCommandCooldowns=new Map();
+ async function handleVpzoneCommand(channel,username,body,raw){
+  const parts=body.trim().split(/\s+/);
+  const name=parts[0]?.toLowerCase();
+  if(!name?.startsWith('!'))return;
+  const key=name.slice(1);
+  if(!/^[a-z0-9_]{1,32}$/.test(key))return;
+  const cmd=db.prepare('SELECT name,response,cooldown,level FROM commands WHERE channel=? AND name=?').get(channel,key);
+  if(!cmd)return;
+  // Do not elevate viewers to moderator/subscriber; only unrestricted custom commands are safe here.
+  if(cmd.level!=='everyone')return;
+  const throttleKey=channel+':vpzone:'+key,now=Date.now();
+  if((vpCommandCooldowns.get(throttleKey)||0)>now)return;
+  const bot=db.prepare("SELECT 1 FROM platform_bot_accounts WHERE platform='vpzone'").get();
+  if(!bot)return;
+  vpCommandCooldowns.set(throttleKey,now+Math.max(0,Number(cmd.cooldown)||0)*1000);
+  const broadcaster=db.prepare("SELECT login FROM channels WHERE id=?").get(channel);
+  const reply=String(cmd.response).replaceAll('{user}',username).replaceAll('{channel}',broadcaster?.login||'').replaceAll('{args}',parts.slice(1).join(' ')).slice(0,450);
+  await vpzoneBotSay(channel,reply);
+  log(channel,'vpzone-command',key);
+ }
  const vpSockets=new Map();
  function vpzoneConnect(channel,slug){
   if(!/^[a-z0-9_-]{2,32}$/i.test(slug))return;
@@ -30,7 +51,10 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
      if(!username||!body)return;
      const bot=db.prepare("SELECT external_id,display_name FROM platform_bot_accounts WHERE platform='vpzone'").get();
      const isBot=Boolean(bot&&(String(item.user_id||item.sender?.id||'')===bot.external_id||username.toLowerCase()===bot.display_name.toLowerCase()));
-     void relay.relay(channel,'vpzone',username,body,{isBot}).catch(err=>log(channel,'vpzone-relay-error',err.message));
+     if(!isBot){
+      void relay.relay(channel,'vpzone',username,body,{isBot:false}).catch(err=>log(channel,'vpzone-relay-error',err.message));
+      void handleVpzoneCommand(channel,username,body,item).catch(err=>log(channel,'vpzone-command-error',err.message));
+     }
     }catch(err){log(channel,'vpzone-event-error',err.message)}
    });
    ws.on('error',err=>log(channel,'vpzone-ws-error',err.message));
@@ -148,6 +172,41 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  db.prepare('UPDATE platform_oauth SET access_token=?,refresh_token=?,expires_at=? WHERE channel=? AND platform=?').run(enc(t.access_token),enc(t.refresh_token),Date.now()+Number(t.expires_in||3600)*1000,channel,type);
  return t.access_token;
  }
+ // VPZone chat sending requires an explicitly linked dedicated bot identity.
+ // Broadcaster OAuth is never used silently as a bot substitute.
+ async function vpzoneBotAccessToken(){
+  const row=db.prepare("SELECT * FROM platform_bot_accounts WHERE platform='vpzone'").get();
+  if(!row)throw Error('VPZone bot not connected. Link it in Admin Panel first.');
+  if(row.expires_at>Date.now()+120000)return dec(row.access_token);
+  const p=conf('vpzone');if(!p?.clientId||!p.clientSecret)throw Error('VPZone developer credentials missing');
+  const response=await fetch(p.token,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'refresh_token',refresh_token:dec(row.refresh_token),client_id:p.clientId,client_secret:p.clientSecret}),signal:AbortSignal.timeout(12000)});
+  if(!response.ok)throw Error('VPZone bot OAuth expired or revoked ('+response.status+'). Reconnect bot from Admin Panel.');
+  const json=await response.json();
+  if(!json.access_token||!json.refresh_token)throw Error('VPZone did not return rotated bot tokens');
+  db.prepare("UPDATE platform_bot_accounts SET access_token=?,refresh_token=?,expires_at=? WHERE platform='vpzone'").run(enc(json.access_token),enc(json.refresh_token),Date.now()+Number(json.expires_in||3600)*1000);
+  return json.access_token;
+ }
+ async function vpzoneBotSay(channel,text){
+  const linked=db.prepare("SELECT display_name FROM platform_oauth WHERE channel=? AND platform='vpzone'").get(channel);
+  if(!linked)throw Error('Link your VPZone broadcaster channel first');
+  if(!/^[a-z0-9_-]{2,32}$/i.test(linked.display_name))throw Error('Invalid VPZone channel slug');
+  const content=String(text||'').trim().slice(0,450);
+  if(!content)throw Error('Message is empty');
+  const token=await vpzoneBotAccessToken();
+  const url='https://vpzone.tv/api/v1/channels/'+encodeURIComponent(linked.display_name)+'/chat';
+  const response=await fetch(url,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({content}),signal:AbortSignal.timeout(12000)});
+  if(!response.ok){
+   const reason=(await response.text()).slice(0,280);
+   if(response.status===401||response.status===403)throw Error('VPZone bot chat permission denied ('+response.status+'). Reconnect the dedicated bot with chat:write. '+reason);
+   throw Error('VPZone bot message failed ('+response.status+'): '+reason);
+  }
+  log(channel,'vpzone-bot-message',linked.display_name);
+  return {ok:true};
+ }
+ relay.register('vpzone',vpzoneBotSay);
+ app.post('/api/platforms/vpzone/chat',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{
+  res.json(await vpzoneBotSay(req.channelId,req.body?.message));
+ }));
  // Kick's official bot mode uses app credentials, not the Twitch shared-bot identity.
  let appToken=null;
  async function kickAppToken(){
@@ -159,17 +218,49 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   appToken={value:token.access_token,expires:Date.now()+Number(token.expires_in||3600)*1000};return appToken.value;
  }
  async function kickBotSay(channel,text){
-  const linked=db.prepare('SELECT 1 FROM platform_oauth WHERE channel=? AND platform=?').get(channel,'kick');
-  if(!linked)throw Error('Connect Kick before using chat');
+  const linked=db.prepare("SELECT external_id,scopes FROM platform_oauth WHERE channel=? AND platform='kick'").get(channel);
+  if(!linked)throw Error('Connect your Kick broadcaster account before sending chat');
   const content=String(text||'').trim().slice(0,500);if(!content)throw Error('Empty chat message');
-  const token=await kickAppToken();
-  const response=await fetch('https://api.kick.com/public/v1/chat',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({content,type:'bot'}),signal:AbortSignal.timeout(12000)});
-  if(!response.ok)throw Error('Kick bot chat failed: '+response.status);
-  log(channel,'kick-bot-message',content.slice(0,80));return {ok:true};
+  const endpoint='https://api.kick.com/public/v1/chat';
+  const post=async(token,body)=>{
+   const response=await fetch(endpoint,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(12000)});
+   return {ok:response.ok,status:response.status,body:response.ok?'':(await response.text()).slice(0,300)};
+  };
+  // Use Kick app bot identity first, as StreamBOT/backendlive does.
+  let initial;
+  try{
+   initial=await post(await kickAppToken(),{content,type:'bot'});
+   if(initial.ok){log(channel,'kick-bot-message','app');return {ok:true,mode:'app-bot'}}
+   if(initial.status!==401)throw Error('Kick bot chat failed: '+initial.status+' '+initial.body);
+  }catch(err){
+   // Do not silently downgrade network errors or other authorization failures.
+   if(!initial||initial.status!==401)throw err;
+  }
+  appToken=null; // invalidate a possibly revoked/stale app credential
+  log(channel,'kick-chat-auth','App bot token rejected (401); attempting linked broadcaster OAuth');
+  if(!String(linked.scopes||'').split(/\s+/).includes('chat:write'))throw Error('Kick app token rejected (401). Reconnect broadcaster with chat:write scope.');
+  const broadcasterId=Number(linked.external_id);
+  if(!Number.isSafeInteger(broadcasterId)||broadcasterId<=0)throw Error('Kick broadcaster ID invalid');
+  let userToken=await refresh(channel,'kick');
+  const payload={content,type:'user',broadcaster_user_id:broadcasterId};
+  let fallback=await post(userToken,payload);
+  if(fallback.status===401){
+   const row=db.prepare("SELECT refresh_token FROM platform_oauth WHERE channel=? AND platform='kick'").get(channel);
+   const p=conf('kick');
+   const res=await fetch(p.token,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'refresh_token',refresh_token:dec(row.refresh_token),client_id:p.clientId,client_secret:p.clientSecret}),signal:AbortSignal.timeout(12000)});
+   if(!res.ok)throw Error('Kick broadcaster token refresh failed: '+res.status+'; reconnect Kick account');
+   const next=await res.json();
+   if(!next.access_token)throw Error('Kick token refresh missing access token');
+   db.prepare("UPDATE platform_oauth SET access_token=?,refresh_token=?,expires_at=? WHERE channel=? AND platform='kick'").run(enc(next.access_token),enc(next.refresh_token||dec(row.refresh_token)),Date.now()+Number(next.expires_in||3600)*1000,channel);
+   fallback=await post(next.access_token,payload);
+  }
+  if(!fallback.ok)throw Error('Kick bot app token rejected (401); broadcaster fallback failed: '+fallback.status+' '+fallback.body);
+  log(channel,'kick-bot-message','broadcaster-fallback');
+  return {ok:true,mode:'broadcaster-fallback'};
  }
  relay.register('kick',kickBotSay);
  app.post('/api/platforms/kick/chat',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{
-  await kickBotSay(req.channelId,req.body.message);res.json({ok:true});
+  const result=await kickBotSay(req.channelId,req.body.message);res.json(result);
  }));
  app.get('/api/platforms/linked',withUser,access.channelOnly('editor'),(req,res)=>{
   res.json({linked:db.prepare('SELECT platform,external_id,display_name FROM platform_oauth WHERE channel=?').all(req.channelId)});
