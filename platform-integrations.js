@@ -116,8 +116,8 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  });
  app.get('/api/platforms/kick/scopes',withUser,access.channelOnly('editor'),(req,res)=>{
   const account=db.prepare("SELECT scopes FROM platform_oauth WHERE channel=? AND platform='kick'").get(req.channelId);
-  const requested=String(conf('kick')?.scope||'').split(/[\\s,]+/).filter(Boolean);
-  const stored=String(account?.scopes||'').split(/[\\s,]+/).filter(Boolean);
+  const requested=String(conf('kick')?.scope||'').split(/[\s,]+/).filter(Boolean);
+  const stored=String(account?.scopes||'').split(/[\s,]+/).filter(Boolean);
   res.set('Cache-Control','no-store').json({linked:Boolean(account),requested,stored,missing:requested.filter(scope=>!stored.includes(scope)),requiresReauthorisation:!stored.includes('events:subscribe')});
  });
  app.get('/api/platforms',withUser,access.channelOnly('editor'),(req,res)=>{
