@@ -5,7 +5,7 @@ Windows x64 and Linux AMD64 builds now launch a desktop window without requiring
 ## First-time setup
 
 1. Download the newest Windows or Linux artifact from the [desktopapp build workflow](https://github.com/NekoSuneProjects/KitsuFlowBOT/actions/workflows/voice-companion-build.yml?query=branch%3Adesktopapp) and extract it.
-2. Download an English Vosk offline speech model from https://alphacephei.com/vosk/models and extract it to a folder called `model` next to the executable, or select a model folder in the GUI.
+2. The app will automatically download a full-quality English Vosk model on the first Start listening, or you can click Download quality model. You may also select an existing model in the GUI.
 3. Open **KitsuFlowVoiceCompanion.exe** (Windows) or **KitsuFlowVoiceCompanion** (Linux). On Linux you may need to mark it executable through file properties.
 4. In your KitsuFlowBOT dashboard, open **Voice & Clips → Desktop Voice Companion → Pair a PC**. Paste the one-time device key into the desktop window.
 5. Choose your microphone. Click **Save .env** to store settings beside the executable, then **Start listening**.
@@ -28,3 +28,9 @@ Do not share `.env`, as it contains a device credential. The GUI masks the pairi
 Linux may require runtime PortAudio (`libportaudio2` on Debian/Ubuntu) and working microphone permissions. The native GUI build uses Tkinter; older Linux distributions with incompatible glibc may require a source install instead.
 
 Twitch native clip creation works when a linked broadcaster is live and authorised. Kick and VPZone report **unsupported** until their native clip creation APIs can be verified.
+
+## Automatic high-accuracy speech model
+
+On first **Start listening**, the companion downloads the official full-size English Vosk `vosk-model-en-us-0.22` (~1.8 GB compressed) automatically if a valid model is not installed. You can also click **Download quality model** in the GUI. Download progress is shown in the window; interrupted downloads leave a `.zip.part` file and resume where the server supports HTTP range requests. Download and extraction need multiple gigabytes of free disk space.
+
+The high-accuracy model is significantly larger than the mobile/small model and can require substantial RAM (Vosk says large models may use up to 16 GB). Make sure your PC has adequate memory. The model downloads once, then remains cached under the chosen `KITSUFLOW_VOSK_MODEL` directory. If you want a custom model, choose an already-installed valid Vosk model folder.
