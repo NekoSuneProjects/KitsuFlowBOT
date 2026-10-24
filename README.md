@@ -1,21 +1,9 @@
-# KitsuFlow Voice Companion
+# KitsuFlow Voice Companion — desktopapp branch
 
-Standalone desktop companion for Windows x64 and Linux AMD64. Recognises `clip it` offline through the local microphone, then securely requests platform-native clipping from your KitsuFlowBOT server. It does not use OBS.
+This branch contains only the desktop GUI companion and its Windows x64 / Linux AMD64 packaging. The KitsuFlowBOT dashboard/server, linked streaming platforms and device-pairing API remain on `main`.
 
-This `desktopapp` branch deliberately contains only the desktop client and its build automation. The KitsuFlowBOT dashboard, device pairing, clip orchestration and provider OAuth integrations live on the `main` branch.
+Download compiled GUI executables from [GitHub Actions](https://github.com/NekoSuneProjects/KitsuFlowBOT/actions/workflows/voice-companion-build.yml?query=branch%3Adesktopapp). No Python installation or console use is needed for downloaded builds. The application reads and writes a local `.env` file and provides a graphical microphone picker, start/stop controls, connectivity information and clip history.
 
-## Download builds
+See [Desktop quick start](voice-companion/QUICKSTART.md) and [app source](voice-companion/companion.py). Install an offline Vosk language model separately; it is not bundled.
 
-Open [Desktop Voice Companion Actions](https://github.com/NekoSuneProjects/KitsuFlowBOT/actions/workflows/voice-companion-build.yml?query=branch%3Adesktopapp) and download `KitsuFlowVoiceCompanion-windows-x64` or `KitsuFlowVoiceCompanion-linux-amd64` from the latest successful run.
-
-Run the packaged binary following [QUICKSTART](voice-companion/QUICKSTART.md). You need a local Vosk language model and a device key created from the web dashboard.
-
-## Development
-
-`python -m pip install -r voice-companion/requirements.txt`
-
-`python voice-companion/companion.py --list-mics`
-
-## Supported native clips
-
-Twitch: when live and authorised on your server. Kick and VPZone: explicit unsupported status until a verified official create-clip API exists.
+Twitch uses the dashboard's official native clipping API. Kick and VPZone currently report unsupported until a verified native clip API becomes available.
