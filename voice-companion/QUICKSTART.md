@@ -1,29 +1,30 @@
-# KitsuFlow Voice Companion — Desktop build
+# KitsuFlow Voice Companion GUI
 
-These are precompiled native executables for Windows x64 and Linux AMD64. You do **not** need Python installed.
+Windows x64 and Linux AMD64 builds now launch a desktop window without requiring command-line use or a Python installation.
 
-## First launch
-1. Open KitsuFlowBOT Dashboard → Voice & Clips → Desktop Voice Companion, pair a PC, and copy the **one-time** device key.
-2. Download the small English Vosk speech model from https://alphacephei.com/vosk/models , unzip it, and name the extracted directory `model`.
-3. Put `model` next to the executable (or pass `--model /path/to/model`).
-4. Set `KITSUFLOW_DEVICE_KEY` in your terminal session, then launch the app.
+## First-time setup
 
-**Windows PowerShell**
-```powershell
-$env:KITSUFLOW_DEVICE_KEY="paste-your-device-key"
-.\KitsuFlowVoiceCompanion.exe
+1. Download the newest Windows or Linux artifact from the [desktopapp build workflow](https://github.com/NekoSuneProjects/KitsuFlowBOT/actions/workflows/voice-companion-build.yml?query=branch%3Adesktopapp) and extract it.
+2. Download an English Vosk offline speech model from https://alphacephei.com/vosk/models and extract it to a folder called `model` next to the executable, or select a model folder in the GUI.
+3. Open **KitsuFlowVoiceCompanion.exe** (Windows) or **KitsuFlowVoiceCompanion** (Linux). On Linux you may need to mark it executable through file properties.
+4. In your KitsuFlowBOT dashboard, open **Voice & Clips → Desktop Voice Companion → Pair a PC**. Paste the one-time device key into the desktop window.
+5. Choose your microphone. Click **Save .env** to store settings beside the executable, then **Start listening**.
+
+The GUI displays its live connection status, phrase, selected platforms, and recent clip results. You can stop or restart listening without closing the window. Voice audio stays locally on your computer.
+
+## .env configuration
+
+The packaged download includes `.env.example`. You can copy it to `.env` beside the executable and edit it, or let the GUI create/update `.env` using **Save .env**.
+
+```dotenv
+KITSUFLOW_URL=https://kitsuflowbot.nekosunevr.co.uk
+KITSUFLOW_DEVICE_KEY=
+KITSUFLOW_VOSK_MODEL=model
+KITSUFLOW_MIC_DEVICE=
 ```
-**Linux**
-```bash
-export KITSUFLOW_DEVICE_KEY='paste-your-device-key'
-chmod +x ./KitsuFlowVoiceCompanion
-./KitsuFlowVoiceCompanion
-```
 
-Run with `--list-mics` to show device IDs, or `--device N` to choose another microphone. You can point it at another HTTPS dashboard with `--server https://your-dashboard.example`.
+Do not share `.env`, as it contains a device credential. The GUI masks the pairing key, and on Linux attempts to restrict saved file permissions to the current user. The configured key can be revoked in the dashboard.
 
-Linux computers may need PortAudio runtime libraries (`sudo apt install libportaudio2` on Debian/Ubuntu) and access to the recording device. Distributions with older glibc than Ubuntu 22.04 may not run this binary; use a Python installation instead.
+Linux may require runtime PortAudio (`libportaudio2` on Debian/Ubuntu) and working microphone permissions. The native GUI build uses Tkinter; older Linux distributions with incompatible glibc may require a source install instead.
 
-The speech model is intentionally **not bundled** because downloads are large and users may select different languages. Your PC performs recognition offline; only the matching phrase goes over HTTPS. Do not share the pairing key or include it in error reports.
-
-Native stream clips are supported through Twitch when live. Kick and VPZone report an explicit unsupported status until verified public create-clip APIs are available.
+Twitch native clip creation works when a linked broadcaster is live and authorised. Kick and VPZone report **unsupported** until their native clip creation APIs can be verified.
