@@ -22,7 +22,7 @@ ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) el
 ENV = ROOT / ".env"
 DEFAULTS = {"KITSUFLOW_URL": "https://kitsuflowbot.nekosunevr.co.uk",
             "KITSUFLOW_DEVICE_KEY": "", "KITSUFLOW_VOSK_MODEL": "model/vask",
-            "KITSUFLOW_MIC_DEVICE": "", "KITSUFLOW_SHOW_ALL_MICS": "false", "KITSUFLOW_WHISPER_BACKEND": "auto", "KITSUFLOW_TRIGGER_SOUND": "true", "KITSUFLOW_STT_ENGINE": "whisper", "KITSUFLOW_WHISPER_MODEL": "auto"}
+            "KITSUFLOW_MIC_DEVICE": "", "KITSUFLOW_MIC_NAME": "", "KITSUFLOW_SHOW_ALL_MICS": "false", "KITSUFLOW_WHISPER_BACKEND": "auto", "KITSUFLOW_TRIGGER_SOUND": "true", "KITSUFLOW_STT_ENGINE": "whisper", "KITSUFLOW_WHISPER_MODEL": "auto"}
 
 def read_env():
     values = DEFAULTS.copy()
@@ -35,7 +35,14 @@ def read_env():
             key, value = line.split("=", 1)
             if key.strip() in values:
                 saved_keys.add(key.strip())
-                values[key.strip()] = value.strip().strip('"').strip("'")
+                raw = value.strip()
+                if raw.startswith('"'):
+                    try:
+                        values[key.strip()] = json.loads(raw)
+                    except (ValueError, TypeError):
+                        values[key.strip()] = raw.strip('"')
+                else:
+                    values[key.strip()] = raw.strip("'")
     for key in values:
         if key not in saved_keys and os.environ.get(key):
             values[key] = os.environ[key]
@@ -385,6 +392,7 @@ class App:
             raw = sd.query_devices()
             apis = sd.query_hostapis()
             saved = self.devices.get(self.device.get())
+            saved_name = self.settings.get("KITSUFLOW_MIC_NAME", "")
             persisted = self.settings.get("KITSUFLOW_MIC_DEVICE", "")
             devices = {"System default": None}
             candidates = []
@@ -421,8 +429,10 @@ class App:
             self.micbox["values"] = list(devices)
             target = saved if saved is not None else (
                 int(persisted) if persisted.isdigit() else None)
-            chosen = next((label for label, index in devices.items()
-                           if index is not None and index == target), None)
+            chosen = next((label for label in devices if label == saved_name), None)
+            if chosen is None:
+                chosen = next((label for label, index in devices.items()
+                               if index is not None and index == target), None)
             if chosen is None and target is not None:
                 self.push("Previously selected microphone is hidden/unavailable; choose a visible device.")
             self.device.set(chosen or "System default")
@@ -437,6 +447,7 @@ class App:
                 "KITSUFLOW_DEVICE_KEY": self.key.get().strip(),
                 "KITSUFLOW_VOSK_MODEL": self.model.get().strip(),
                 "KITSUFLOW_MIC_DEVICE": "" if selected is None else str(selected),
+                "KITSUFLOW_MIC_NAME": self.device.get() if selected is not None else "",
                 "KITSUFLOW_TRIGGER_SOUND": "true" if self.trigger_sound.get() else "false",
                 "KITSUFLOW_SHOW_ALL_MICS": "true" if self.show_all_mics.get() else "false",
                 "KITSUFLOW_WHISPER_BACKEND": self.whisper_backend.get(),
