@@ -145,5 +145,5 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "KitsuFlow Voice Companion ${TAG#desktopapp-v}" \
             --generate-notes \
-            --target "$GITHUB_SHA" \
+            --target "$GITHUB_SHA"
 
