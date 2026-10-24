@@ -96,7 +96,7 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
    const response=await fetch(url,{headers,signal:AbortSignal.timeout(12000)});
    if(!response.ok)throw Error('List subscriptions HTTP '+response.status);
    const data=await response.json();
-   const rows=Array.isArray(data.data)?data.data:[];
+   const rows=Array.isArray(data.data)?data.data:Array.isArray(data.data?.subscriptions)?data.data.subscriptions:[];
    const existing=rows.some(x=>x.event==='chat.message.sent'||x.name==='chat.message.sent'||x.event?.name==='chat.message.sent');
    if(existing)return status('subscribed','Existing chat.message.sent subscription');
    const created=await fetch(url,{method:'POST',headers,body:JSON.stringify({broadcaster_user_id:Number(account.external_id),method:'webhook',events:[{name:'chat.message.sent',version:1}]}),signal:AbortSignal.timeout(12000)});
@@ -342,7 +342,7 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   const body=String(event.content||event.message?.content||'').slice(0,350);
   const bot=db.prepare('SELECT external_id FROM platform_bot_accounts WHERE platform=?').get('kick');
   if(body){
-   const isBot=Boolean(bot&&String(event.sender?.user_id||event.sender?.id)===bot.external_id);
+   const isBot=Boolean((bot&&String(event.sender?.user_id||event.sender?.id)===bot.external_id)||event.sender?.is_bot===true||(process.env.KICK_BOT_USERNAME&&String(event.sender?.username||'').toLowerCase()===process.env.KICK_BOT_USERNAME.toLowerCase()));
    if(!isBot&&event.sender?.is_anonymous!==true){
     void relay.relay(linked.channel,'kick',event.sender?.username||actor,body,{isBot:false}).catch(err=>log(linked.channel,'relay-error',err.message));
     void kickIncomingCommand(linked.channel,event).catch(err=>log(linked.channel,'kick-command-error',err.message));
