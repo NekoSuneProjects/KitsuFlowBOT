@@ -6,7 +6,7 @@ const descriptions={overview:'A clear view of everything happening across your c
 function notify(text){$('#notice').textContent=text;setTimeout(()=>{if($('#notice').textContent===text)$('#notice').textContent=''},6500)}
 async function api(path,method='GET',body){const r=await fetch(path,{method,headers:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});let x;try{x=await r.json()}catch{x={error:'Unexpected server response'}}if(!r.ok)throw Error(x.error||'Request failed');return x}
 const error=fn=>async(...args)=>{try{return await fn(...args)}catch(ex){notify(ex.message)}};
-async function load(){try{state=await api('/api/state');access=await api('/api/access');creator=await api('/api/creator');engagement=await api('/api/engagement');$('#shell').hidden=false;$('#login').hidden=true;buildNav();updateChrome();await show(page)}catch(ex){if(ex.message==='Login required'){$('#login').hidden=false;$('#shell').hidden=true}else{$('#shell').hidden=false;notify(ex.message)}}}
+async function load(){try{state=await api('/api/state');access=await api('/api/access');creator=await api('/api/creator');engagement=await api('/api/engagement');$('#shell').hidden=false;$('#login').hidden=true;buildNav();updateChrome();await show(page)}catch(ex){if(ex.message==='Login required'){location.replace('/login');return}else{$('#shell').hidden=false;notify(ex.message)}}}
 const card=(title,description)=>{const c=h('section','card');c.append(e('h2',title));if(description)c.append(e('div',description,'description'));return c};
 const wrap=(...things)=>h('div','grid cols2',...things);
 const grid=(cls,...things)=>h('div','grid '+cls,...things);
@@ -56,11 +56,11 @@ function queue(){return h('section','card',e('h2','Viewer Queue'),e('p','Viewers
 function quotes(){return wrap(form('Save a quote',[['text','Quote text']],'Add quote',x=>api('/api/engagement/quote','POST',x)),form('Configure counter',[['name','Counter name'],['value','Current count','number',0]],'Save counter',x=>api('/api/engagement/counter','POST',x)),h('section','card',e('h2','Quotes'),list(engagement.quotes,x=>'#'+x.id+' '+x.text,x=>api('/api/engagement/quote/'+x.id,'DELETE'))),h('section','card',e('h2','Counters'),list(engagement.counters,x=>x.name+' = '+x.value,x=>api('/api/engagement/counter/'+x.name,'DELETE'))))}
 function overlays(){return wrap(form('New OBS overlay',[['title','Overlay name'],['kind','Widget','options',['alerts','leaderboard','queue','ticker']]],'Create overlay',x=>api('/api/creator/overlay','POST',x)),h('section','card',e('h2','Browser source widgets'),table(['Widget','Type','Actions'],creator.overlays.map(x=>[x.title,x.kind,actions(link('Open source ↗','/overlay/'+x.public_key),btn('Test',async()=>{await api('/api/creator/overlay/test','POST',{id:x.id,message:'KitsuFlowBOT test notification'});notify('Test event sent')}))]))))}
 async function connections(){
- const c=card('Twitch channel connection','Every broadcaster authorises their own channel. The platform owner connects the public Twitch bot once.');
+ const c=card('Unified creator profile','Twitch is your primary login. Connect Kick and VPZone to this same workspace. Your saved settings and custom commands belong to this creator account.');
  c.append(h('div','list-row',e('span','Twitch broadcaster'),e('strong','@'+state.channel.login)),h('div','list-row',e('span','Shared bot'),e('strong',state.bot?'@'+state.bot.login:'Not connected')));
  const enabled=input('Enable bot for my channel',!!state.channel.enabled,'checkbox'),links=input('Timeout unapproved links',!!state.channel.links,'checkbox');
  c.append(grid('cols2',enabled.node,links.node),actions(btn('Save Twitch settings',async()=>{await api('/api/settings','POST',{enabled:enabled.value(),links:links.value()});await reloadView()},'primary')));
- const providerCard=card('Additional streaming platforms','Connect an independent Kick or VPZone broadcaster account. Existing Twitch settings remain separate.');
+ const providerCard=card('Linked streaming channels','Kick and VPZone attach to your Twitch-based profile. You stay signed in with Twitch, and manage them from one dashboard. Twitch bot chat commands currently work only on Twitch; connected-provider chat adapters will reuse these shared settings when supported.');
  const result=await api('/api/platforms');
  for(const provider of result.platforms.filter(x=>x.platform!=='twitch')){
    const row=h('div','list-row',h('div','',e('strong',provider.platform==='kick'?'Kick':'VPZone'),e('div',provider.connection?'Connected: '+provider.connection.display_name:provider.configured?'Ready for OAuth connection':'Developer app credentials required','tiny')));
@@ -71,7 +71,7 @@ async function connections(){
    }else row.append(e('span','Not configured','pill'));
    providerCard.append(row);
  }
- const feed=card('Provider activity','Kick verified webhook activity and connected-platform events.');
+ const feed=card('Cross-platform activity','Verified provider events appear here when event delivery is configured. Twitch remains the primary dashboard login.');
  const events=await api('/api/platform-events');
  feed.append(table(['Platform','Type','When'],events.slice(0,30).map(x=>[x.platform,x.event_type,x.created])));
  return h('div','stack',c,providerCard,feed);
