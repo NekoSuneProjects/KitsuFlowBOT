@@ -343,8 +343,8 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  const linked=db.prepare('SELECT channel FROM platform_oauth WHERE platform=? AND external_id=?').get('kick',broadcaster);
  db.prepare('INSERT INTO platform_delivery(platform,message_id,created_at) VALUES(?,?,?)').run('kick',msg,Date.now());
  if(linked){
- const actor=clean(event.follower?.username||event.sender?.username||event.user?.username||event.subscriber?.username||'');
- const detail=clean(kind+' '+actor);
+ const actor=clean(event.follower?.username||event.sender?.username||event.user?.username||event.subscriber?.username||event.gifter?.username||event.raid?.username||'');
+ const detail=clean([kind,actor,event.amount||event.gift?.amount||event.giftees?.length||''].filter(Boolean).join(' '));
  db.prepare('INSERT INTO platform_events(channel,platform,event_type,actor,detail) VALUES(?,?,?,?,?)').run(linked.channel,'kick',kind,actor,detail);
  db.prepare('INSERT INTO overlay_events(channel,kind,message) VALUES(?,?,?)').run(linked.channel,kind,detail);
  streamActivity.emit(linked.channel,'kick',kind,actor,detail,msg);
