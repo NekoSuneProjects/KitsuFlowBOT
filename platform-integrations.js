@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import {WebSocket} from 'ws';
 const providers={
  kick:{auth:'https://id.kick.com/oauth/authorize',token:'https://id.kick.com/oauth/token',client:'KICK_CLIENT_ID',secret:'KICK_CLIENT_SECRET',scope:process.env.KICK_AUTH_SCOPES||'user:read channel:read channel:write chat:write events:subscribe moderation:ban'},
- vpzone:{auth:'https://vpzone.tv/oauth/authorize',token:'https://vpzone.tv/api/oauth/token',client:'VPZONE_CLIENT_ID',secret:'VPZONE_CLIENT_SECRET',scope:'profile:read dashboard:read chat:read'}
+ vpzone:{auth:'https://vpzone.tv/oauth/authorize',token:'https://vpzone.tv/api/oauth/token',client:'VPZONE_CLIENT_ID',secret:'VPZONE_CLIENT_SECRET',scope:'profile:read dashboard:read chat:read chat:write'}
 };
 const clean=s=>String(s??'').slice(0,250);
 const pkce=()=>crypto.randomBytes(48).toString('base64url');
@@ -148,6 +148,41 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  db.prepare('UPDATE platform_oauth SET access_token=?,refresh_token=?,expires_at=? WHERE channel=? AND platform=?').run(enc(t.access_token),enc(t.refresh_token),Date.now()+Number(t.expires_in||3600)*1000,channel,type);
  return t.access_token;
  }
+ // VPZone chat sending requires an explicitly linked dedicated bot identity.
+ // Broadcaster OAuth is never used silently as a bot substitute.
+ async function vpzoneBotAccessToken(){
+  const row=db.prepare("SELECT * FROM platform_bot_accounts WHERE platform='vpzone'").get();
+  if(!row)throw Error('VPZone bot not connected. Link it in Admin Panel first.');
+  if(row.expires_at>Date.now()+120000)return dec(row.access_token);
+  const p=conf('vpzone');if(!p?.clientId||!p.clientSecret)throw Error('VPZone developer credentials missing');
+  const response=await fetch(p.token,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'refresh_token',refresh_token:dec(row.refresh_token),client_id:p.clientId,client_secret:p.clientSecret}),signal:AbortSignal.timeout(12000)});
+  if(!response.ok)throw Error('VPZone bot OAuth expired or revoked ('+response.status+'). Reconnect bot from Admin Panel.');
+  const json=await response.json();
+  if(!json.access_token||!json.refresh_token)throw Error('VPZone did not return rotated bot tokens');
+  db.prepare("UPDATE platform_bot_accounts SET access_token=?,refresh_token=?,expires_at=? WHERE platform='vpzone'").run(enc(json.access_token),enc(json.refresh_token),Date.now()+Number(json.expires_in||3600)*1000);
+  return json.access_token;
+ }
+ async function vpzoneBotSay(channel,text){
+  const linked=db.prepare("SELECT display_name FROM platform_oauth WHERE channel=? AND platform='vpzone'").get(channel);
+  if(!linked)throw Error('Link your VPZone broadcaster channel first');
+  if(!/^[a-z0-9_-]{2,32}$/i.test(linked.display_name))throw Error('Invalid VPZone channel slug');
+  const content=String(text||'').trim().slice(0,450);
+  if(!content)throw Error('Message is empty');
+  const token=await vpzoneBotAccessToken();
+  const url='https://vpzone.tv/api/v1/channels/'+encodeURIComponent(linked.display_name)+'/chat';
+  const response=await fetch(url,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({content}),signal:AbortSignal.timeout(12000)});
+  if(!response.ok){
+   const reason=(await response.text()).slice(0,280);
+   if(response.status===401||response.status===403)throw Error('VPZone bot chat permission denied ('+response.status+'). Reconnect the dedicated bot with chat:write. '+reason);
+   throw Error('VPZone bot message failed ('+response.status+'): '+reason);
+  }
+  log(channel,'vpzone-bot-message',linked.display_name);
+  return {ok:true};
+ }
+ relay.register('vpzone',vpzoneBotSay);
+ app.post('/api/platforms/vpzone/chat',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{
+  res.json(await vpzoneBotSay(req.channelId,req.body?.message));
+ }));
  // Kick's official bot mode uses app credentials, not the Twitch shared-bot identity.
  let appToken=null;
  async function kickAppToken(){
