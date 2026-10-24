@@ -92,7 +92,7 @@ db.prepare('INSERT INTO accounts(id,login,display,access,refresh,expires,scopes)
 if(s.role==='bot'&&u.id===s.owner)throw Error('A separate bot Twitch account is required; do not authorise your admin streamer account as the bot.');
 if(s.role==='streamer'){req.session.uid=u.id;db.prepare('INSERT INTO channels(id,login) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET login=excluded.login').run(u.id,u.login)}
 else{if(!s.owner||s.owner!==req.session.uid||!isOperator(s.owner))throw Error('Only the KitsuFlowBOT operator may configure the shared bot');db.prepare("INSERT INTO config(key,value) VALUES('bot_id',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(u.id);connectChat()}
-res.redirect('/')}));
+res.redirect('/dashboard')}));
 app.post('/logout',csrf,(req,res)=>req.session.destroy(()=>res.json({ok:true})));
 const access=installAccess({app,db,withUser,csrf,safe,log});
 // Existing studio endpoints resolve the selected channel, not the login identity.
@@ -161,4 +161,6 @@ const engagement=installEngagement({app,db,withUser,csrf,safe,say,moderate,log,a
 const creator=installCreator({app,db,withUser,csrf,safe,log,say});
 installVoice({app,db,withUser,csrf,access,api,clip,log,say});
 installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE});
-app.use(express.static('public'));app.listen(PORT,()=>console.log('KitsuFlowBOT on '+PORT));connectChat();
+app.get('/dashboard',(req,res)=>req.session.uid?res.sendFile(path.resolve('public/dashboard.html')):res.redirect('/login'));
+app.get('/login',(req,res)=>req.session.uid?res.redirect('/dashboard'):res.sendFile(path.resolve('public/login.html')));
+app.use(express.static('public',{index:'index.html',redirect:false}));app.listen(PORT,()=>console.log('KitsuFlowBOT on '+PORT));connectChat();
