@@ -75,7 +75,7 @@ async function connections(){
  const enabled=input('Enable bot for my channel',!!state.channel.enabled,'checkbox'),links=input('Timeout unapproved links',!!state.channel.links,'checkbox');
  c.append(grid('cols2',enabled.node,links.node),actions(btn('Save Twitch settings',async()=>{await api('/api/settings','POST',{enabled:enabled.value(),links:links.value()});await reloadView()},'primary')));
  const runtime=await api('/api/platforms/runtime').catch(()=>null);
- const providerCard=card('Linked streaming channels','Kick and VPZone attach to your Twitch-based profile. You stay signed in with Twitch, and manage them from one dashboard. Twitch bot chat commands currently work only on Twitch; connected-provider chat adapters will reuse these shared settings when supported.');
+ const providerCard=card('Linked streaming channels','Kick and VPZone attach to your Twitch-based profile. You stay signed in with Twitch, and manage them from one dashboard. Connected platforms share creator settings and commands where their chat integrations support them.');
  let result;try{result=await api('/api/platforms')}catch(err){providerCard.append(e('div','Could not load Kick/VPZone connections: '+err.message,'empty'));result={platforms:[]}}
  for(const provider of result.platforms.filter(x=>x.platform!=='twitch')){
    const row=h('div','list-row',h('div','',e('strong',provider.platform==='kick'?'Kick':'VPZone'),e('div',provider.connection?'Linked: '+provider.connection.display_name+' · '+(provider.platform==='vpzone'?(runtime?.vpzone?.chat_connected?'Chat connected':'Chat disconnected'):(runtime?.kick?.subscription_active?'Chat subscribed':'Chat subscription pending')):provider.configured?'Ready for OAuth connection':'Developer app credentials required','tiny')));
