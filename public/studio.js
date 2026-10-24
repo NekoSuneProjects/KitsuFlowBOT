@@ -36,7 +36,7 @@ function moderation(){return wrap(form('Banned words',[['word','Word or phrase']
 async function voice(){
  const voiceData=await api('/api/voice');
  const s=voiceData.settings;
- const v=card('Server-side Twitch voice detection','Works in Firefox because transcription runs inside Docker, not the browser. Only enabled, live channels are processed.');
+ const v=card('Server-side voice detection — Twitch, Kick & VPZone','Works in Firefox because transcription runs inside Docker, not the browser. Only enabled, live channels are processed.');
  const enabled=input('Enable live audio recognition',Boolean(s.enabled),'checkbox');
  const phrase=input('Trigger phrase',s.phrase);
  const cooldown=input('Clip cooldown (seconds)',s.cooldown,'number');
@@ -47,7 +47,21 @@ async function voice(){
  btn('Create clip now',async()=>{const x=await api('/api/clip','POST');notify('Clip created: '+x.id)})));
  const history=card('Recent voice clips','Results of phrases detected from stream audio.');
  history.append(table(['When','Phrase','Clip'],voiceData.events.map(x=>[x.created,x.phrase,x.clip_id||'Failed'])));
- return h('div','stack',v,history);
+ const extra=await api('/api/voice/platforms');
+ const platformCard=card('Kick & VPZone voice detection','Use the server audio worker on linked streams. Voice phrases are logged, but these platforms do not currently offer a supported public clip creation API.');
+ for(const platform of ['kick','vpzone']){
+  const cfg=extra.settings.find(x=>x.platform===platform);
+  const enabled=input('Enable '+(platform==='kick'?'Kick':'VPZone')+' listening',Boolean(cfg.enabled),'checkbox');
+  const phrase=input('Trigger phrase',cfg.phrase);
+  const cooldown=input('Cooldown in seconds',cfg.cooldown,'number');
+  platformCard.append(e('h3',platform==='kick'?'Kick live stream':'VPZone live stream'),grid('cols2',enabled.node,phrase.node,cooldown.node),actions(btn('Save '+platform+' voice settings',async()=>{
+   await api('/api/voice/platforms/'+platform,'POST',{enabled:enabled.value(),phrase:phrase.value(),cooldown:cooldown.value()});
+   notify(platform+' voice settings updated');await reloadView();
+  },'primary')));
+ }
+ const triggerLog=card('Other platform voice triggers','Recognition is recorded even when no supported native clip creation API exists.');
+ triggerLog.append(table(['Platform','Phrase','Result','When'],extra.history.map(x=>[x.platform,x.phrase,x.result,x.created])));
+ return h('div','stack',v,history,platformCard,triggerLog);
 }
 function loyalty(){return wrap(form('Loyalty settings',[['enabled','Enabled','checkbox',!!engagement.loyalty.enabled],['points_per_interval','Points per interval','number',engagement.loyalty.points_per_interval],['interval_minutes','Interval minutes','number',engagement.loyalty.interval_minutes]],'Save loyalty',x=>api('/api/engagement/loyalty','POST',x)),h('section','card',e('h2','Points leaderboard'),table(['Viewer','Points','Estimated active minutes'],creator.leaderboard.map(x=>[x.username,x.points,x.watch_minutes]))))}
 function campaigns(){return wrap(form('New giveaway or contest',[['title','Title'],['kind','Type','options',['giveaway','contest']],['cost','Entry points','number',0]],'Create event',x=>api('/api/creator/campaign','POST',x)),h('section','card',e('h2','Events'),table(['Title','Type','Status','Draw'],creator.campaigns.map(x=>[x.title,x.kind,x.status,x.status==='open'?btn('Draw winner',async()=>{const y=await api('/api/creator/campaign/draw','POST',{id:x.id});notify('Winner: '+y.winner);await reloadView()}):x.winner||'Closed']))))}
