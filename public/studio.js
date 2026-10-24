@@ -74,10 +74,11 @@ async function connections(){
  c.append(h('div','list-row',e('span','Twitch broadcaster'),e('strong','@'+state.channel.login)),h('div','list-row',e('span','Shared bot'),e('strong',state.bot?'@'+state.bot.login:'Not connected')));
  const enabled=input('Enable bot for my channel',!!state.channel.enabled,'checkbox'),links=input('Timeout unapproved links',!!state.channel.links,'checkbox');
  c.append(grid('cols2',enabled.node,links.node),actions(btn('Save Twitch settings',async()=>{await api('/api/settings','POST',{enabled:enabled.value(),links:links.value()});await reloadView()},'primary')));
+ const runtime=await api('/api/platforms/runtime').catch(()=>null);
  const providerCard=card('Linked streaming channels','Kick and VPZone attach to your Twitch-based profile. You stay signed in with Twitch, and manage them from one dashboard. Twitch bot chat commands currently work only on Twitch; connected-provider chat adapters will reuse these shared settings when supported.');
- const result=await api('/api/platforms');
+ let result;try{result=await api('/api/platforms')}catch(err){providerCard.append(e('div','Could not load Kick/VPZone connections: '+err.message,'empty'));result={platforms:[]}}
  for(const provider of result.platforms.filter(x=>x.platform!=='twitch')){
-   const row=h('div','list-row',h('div','',e('strong',provider.platform==='kick'?'Kick':'VPZone'),e('div',provider.connection?'Connected: '+provider.connection.display_name:provider.configured?'Ready for OAuth connection':'Developer app credentials required','tiny')));
+   const row=h('div','list-row',h('div','',e('strong',provider.platform==='kick'?'Kick':'VPZone'),e('div',provider.connection?'Linked: '+provider.connection.display_name+' · '+(provider.platform==='vpzone'?(runtime?.vpzone?.chat_connected?'Chat connected':'Chat disconnected'):'Webhook subscription not active'):provider.configured?'Ready for OAuth connection':'Developer app credentials required','tiny')));
    if(provider.connection){
      row.append(actions(btn('View channel',async()=>{const data=await api('/api/platforms/'+provider.platform+'/channel');notify(provider.platform+' channel information loaded');console.info(data)}),btn('Disconnect',async()=>{if(!confirm('Disconnect '+provider.platform+'?'))return;await api('/api/platforms/'+provider.platform+'/disconnect','POST');await reloadView()},'danger')));
    }else if(provider.configured){
@@ -88,7 +89,7 @@ async function connections(){
  const botChat=card('Kick application bot chat','Send messages with Kick’s official application bot identity. This does not use your Twitch bot account.');
  const msg=input('Test message','KitsuFlowBOT connected to Kick');
  botChat.append(msg.node,actions(btn('Send via Kick bot',async()=>{await api('/api/platforms/kick/chat','POST',{message:msg.value()});notify('Kick bot message submitted')},'primary')));
- const relayData=await api('/api/relay');
+ const relayData=await api('/api/relay').catch(()=>({routes:[],history:[]}));
  const relayCard=card('Cross-platform chat relay','Relay is off by default. Enable only directions you want. Messages are labelled by source and protected against loops.');
  for(const [source,target] of [['twitch','kick'],['kick','twitch'],['twitch','vpzone'],['vpzone','twitch'],['kick','vpzone'],['vpzone','kick']]){
   const original=relayData.routes.find(r=>r.source===source&&r.target===target);
@@ -99,7 +100,7 @@ async function connections(){
  const relayLog=card('Chat relay history','Latest routed messages and their delivery status.');
  relayLog.append(table(['Source','Target','Sender','Status'],relayData.history.map(x=>[x.source,x.target,x.sender,x.status])));
  const feed=card('Cross-platform activity','Verified provider events appear here when event delivery is configured. Twitch remains the primary dashboard login.');
- const events=await api('/api/platform-events');
+ const events=await api('/api/platform-events').catch(()=>[]);
  feed.append(table(['Platform','Type','When'],events.slice(0,30).map(x=>[x.platform,x.event_type,x.created])));
  return h('div','stack',c,providerCard,botChat,relayCard,relayLog,feed);
 }
@@ -137,5 +138,6 @@ c.append(device);
 c.append(actions(btn('Reconnect bot EventSub',async()=>{await api('/api/admin/bot/reconnect','POST');notify('Reconnection requested');await show('admin')})),e('h3','Connected channels'),table(['Channel','Twitch ID','Enabled'],x.channels.map(v=>['@'+v.login,v.id,v.enabled?'Yes':'No'])));if(x.bot?.login===state.channel.login)c.append(e('div','Warning: The bot and broadcaster are the same Twitch account. For a public multi-channel bot, authorise a dedicated bot Twitch account instead.','empty'));return c}
 const views={overview,activity,reports,commands,timers,moderation,voice,loyalty,campaigns,store,queue,quotes,overlays,connections,channel,team,admin};
 async function show(id){if(id==='admin'&&!state.isOperator)id='overview';page=id;$('#crumb').textContent=groups.flatMap(x=>x[1]).find(x=>x[0]===id)?.[2]||id;$('#page-title').textContent=$('#crumb').textContent;$('#page-desc').textContent=descriptions[id];$('#kicker').textContent=id==='admin'?'PLATFORM ADMINISTRATION':'CREATOR CONTROL CENTER';document.querySelectorAll('.nav-link').forEach(x=>x.classList.toggle('active',x.dataset.page===id));const view=$('#view');view.replaceChildren(e('p','Loading...','muted'));try{const result=await views[id]();view.replaceChildren(result)}catch(ex){view.replaceChildren(e('div','Failed to load page: '+ex.message,'empty'))}}
+fetch('/api/build-info',{cache:'no-store'}).then(r=>r.json()).then(info=>{const el=$('#studio-version');if(el)el.textContent='Studio · '+String(info.version).slice(0,12)}).catch(()=>{});
 load();
 })();

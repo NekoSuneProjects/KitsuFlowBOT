@@ -165,6 +165,7 @@ const engagement=installEngagement({app,db,withUser,csrf,safe,say,moderate,log,a
 const creator=installCreator({app,db,withUser,csrf,safe,log,say});
 installVoice({app,db,withUser,csrf,access,api,clip,log,say});
 installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,relay});
-app.get('/dashboard',(req,res)=>req.session.uid?res.sendFile(path.resolve('public/dashboard.html')):res.redirect('/login'));
+app.get('/dashboard',(req,res)=>{res.set('Cache-Control','no-store, max-age=0');return req.session.uid?res.sendFile(path.resolve('public/dashboard.html')):res.redirect('/login')});
 app.get('/login',(req,res)=>req.session.uid?res.redirect('/dashboard'):res.sendFile(path.resolve('public/login.html')));
-app.use(express.static('public',{index:'index.html',redirect:false}));app.listen(PORT,()=>console.log('KitsuFlowBOT on '+PORT));connectChat();
+app.get('/api/build-info',(req,res)=>res.set('Cache-Control','no-store').json({version:process.env.GITHUB_SHA||process.env.APP_VERSION||'local',providers:['twitch','kick','vpzone']}));
+app.use(express.static('public',{index:'index.html',redirect:false,setHeaders:(res,file)=>{if(/(?:studio\.js|dashboard\.html)$/.test(file))res.setHeader('Cache-Control','no-store, max-age=0')}}));app.listen(PORT,()=>console.log('KitsuFlowBOT on '+PORT));connectChat();
