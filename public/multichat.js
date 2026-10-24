@@ -5,11 +5,21 @@ let after=0,initial=true,tts=false,rate=1.08,volume=1,emotes={};
 const empty=document.createElement('div');empty.className='placeholder';empty.textContent='Waiting for messages from connected channels…';feed.append(empty);
 function status(data){
  statusEl.replaceChildren();
+ const names={twitch:'Twitch',kick:'Kick',vpzone:'VPZone'};
  for(const platform of ['twitch','kick','vpzone']){
-  const value=data?.[platform]?.status||'pending';
-  const node=document.createElement('span');node.className='connection '+(['connected','pending','failed'].includes(value)?value:'pending');
-  node.title=String(data?.[platform]?.detail||'Awaiting connection');
-  const light=document.createElement('span');light.className='light';node.append(light,document.createTextNode(platform.toUpperCase()+' · '+value));statusEl.append(node);
+  const raw=data?.[platform]?.status||'pending';
+  const value=['connected','pending','failed'].includes(raw)?raw:'pending';
+  const item=document.createElement('div');
+  item.className='connection '+value+' platform-'+platform;
+  item.setAttribute('role','status');
+  item.setAttribute('aria-label',names[platform]+': '+value);
+  item.title=names[platform]+' — '+value+' — '+String(data?.[platform]?.detail||'Awaiting connection');
+  const badge=document.createElement('span');badge.className='connection-brand';badge.textContent=platform==='twitch'?'T':platform==='kick'?'K':'V';
+  const name=document.createElement('span');name.className='connection-name';name.textContent=names[platform];
+  const mark=document.createElement('span');mark.className='connection-mark';
+  mark.textContent=value==='connected'?'✓':value==='failed'?'!':'';
+  mark.setAttribute('aria-hidden','true');
+  item.append(badge,name,mark);statusEl.append(item);
  }
 }
 function icon(url,name){
