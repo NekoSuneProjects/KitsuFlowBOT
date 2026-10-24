@@ -11,6 +11,7 @@ import urllib.request
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
+from model_downloader import install_model, valid_model
 
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 ENV = ROOT / ".env"
@@ -68,6 +69,7 @@ class App:
         self.inbox = queue.Queue()
         self.stop = threading.Event()
         self.thread = None
+        self.downloading = False
         self.status = tk.StringVar(value="Disconnected")
         self.phrase = tk.StringVar(value="clip it")
         self.routing = tk.StringVar(value="Not connected")
@@ -104,6 +106,10 @@ class App:
         modelrow.pack(fill="x")
         ttk.Entry(modelrow, textvariable=self.model).pack(side="left", fill="x", expand=True)
         ttk.Button(modelrow, text="Browse", command=self.browse_model).pack(side="left", padx=(6, 0))
+        self.download_button = ttk.Button(modelrow, text="Download quality model", command=self.download_model)
+        self.download_button.pack(side="left", padx=(6, 0))
+        self.model_progress = ttk.Progressbar(settings, maximum=100, mode="determinate")
+        self.model_progress.pack(fill="x", pady=(5, 0))
         ttk.Label(settings, text="Microphone").pack(anchor="w", pady=(8, 3))
         microw = ttk.Frame(settings)
         microw.pack(fill="x")
@@ -145,6 +151,19 @@ class App:
                     self.phrase.set("Trigger: " + value.get("phrase", "clip it"))
                     self.routing.set("Routing: " + value.get("routing", "all") +
                         " · Platforms: " + ", ".join(value.get("platforms", [])))
+                elif kind == "model_progress":
+                    self.model_progress["value"] = value[0]
+                    self.status.set(value[1])
+                elif kind == "start_after_download":
+                    self.start()
+                elif kind == "model_done":
+                    self.downloading = False
+                    self.download_button.config(state="normal")
+                    if value:
+                        self.push("Full-quality speech model installed.")
+                        self.status.set("Model ready")
+                    else:
+                        self.status.set("Model download failed")
                 elif kind == "stopped":
                     self.start_button.config(state="normal")
                     self.stop_button.config(state="disabled")
@@ -155,6 +174,25 @@ class App:
     def browse_model(self):
         directory = filedialog.askdirectory(title="Select extracted Vosk model folder")
         if directory: self.model.set(directory)
+
+    def download_model(self, then_listen=None):
+        if self.downloading:
+            return
+        self.downloading = True
+        self.download_button.config(state="disabled")
+        values = self.values()
+        model_path = Path(values["KITSUFLOW_VOSK_MODEL"]).expanduser()
+        if not model_path.is_absolute(): model_path = ROOT / model_path
+        def worker():
+            try:
+                install_model(model_path, lambda p, msg: self.inbox.put(("model_progress", (p, msg))))
+                self.inbox.put(("model_done", True))
+                if then_listen is not None:
+                    self.inbox.put(("start_after_download", values))
+            except Exception as exc:
+                self.inbox.put(("log", "Model download error: " + str(exc)))
+                self.inbox.put(("model_done", False))
+        threading.Thread(target=worker, daemon=True).start()
 
     def refresh_mics(self):
         try:
@@ -195,8 +233,15 @@ class App:
             return
         model_path = Path(values["KITSUFLOW_VOSK_MODEL"]).expanduser()
         if not model_path.is_absolute(): model_path = ROOT / model_path
-        if not model_path.is_dir():
-            messagebox.showerror("Speech model missing", "Download a Vosk model and select the extracted folder.")
+        if not valid_model(model_path):
+            if self.downloading:
+                self.push("Model download is already running.")
+                return
+            if model_path.exists():
+                messagebox.showerror("Invalid model folder", "Choose an empty folder or a valid existing Vosk model.")
+                return
+            self.push("Full-quality model missing. Downloading it automatically before listening.")
+            self.download_model(then_listen=True)
             return
         self.stop.clear()
         self.start_button.config(state="disabled")
