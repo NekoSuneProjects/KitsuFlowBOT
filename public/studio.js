@@ -95,7 +95,7 @@ async function globalCommandsPanel(){
  const name=input('Twitch username to grant supermod access');
  modPanel.append(name.node,actions(btn('Add supermod',async()=>{await api('/api/commands/supermod','POST',{login:name.value(),enabled:true});notify('Supermod added');await reloadView()},'primary')));
  for(const mod of data.supermods)modPanel.append(h('div','kf-result',e('strong','@'+mod.login),actions(btn('Remove',async()=>{if(!confirm('Remove supermod @'+mod.login+'?'))return;await api('/api/commands/supermod','POST',{login:mod.login,enabled:false});await reloadView()},'danger'))));
- return h('div','stack',panel,modPanel);
+ return access.role==='owner'?h('div','stack',panel,modPanel):h('div','stack',panel);
 }
 async function commands(){
  const globals=await globalCommandsPanel();
