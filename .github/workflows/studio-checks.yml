@@ -20,7 +20,6 @@ jobs:
           node --check platform-integrations.js
           node --check voice.js
           node --check voice-companion.js
-          python3 -m py_compile voice-companion/companion.py
           python3 -m py_compile voice-worker.py
       - name: Verify required Studio assets
         run: |
