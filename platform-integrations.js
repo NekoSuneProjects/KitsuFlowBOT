@@ -88,7 +88,7 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   if(!account)return;
   const status=(state,detail)=>db.prepare('INSERT INTO kick_chat_status(channel,status,detail,updated_at) VALUES(?,?,?,?) ON CONFLICT(channel) DO UPDATE SET status=excluded.status,detail=excluded.detail,updated_at=excluded.updated_at').run(channel,state,String(detail).slice(0,240),Date.now());
   if(process.env.KICK_WEBHOOK_ENABLED==='false')return status('disabled','KICK_WEBHOOK_ENABLED=false');
-  if(!String(account.scopes||'').split(/[\s,]+/).includes('events:subscribe'))return status('missing_scope','Granted scopes: '+String(account.scopes||'(none)')+'. Reconnect Kick with events:subscribe if absent');
+  if(!String(account.scopes||'').split(/[\s,]+/).includes('events:subscribe'))return status('missing_scope','Stored Kick OAuth grant lacks events:subscribe; reauthorise the linked broadcaster in Connections. Saved: '+String(account.scopes||'(none)'))
   try{
    const token=await refresh(channel,'kick');
    const url='https://api.kick.com/public/v1/events/subscriptions';
@@ -113,6 +113,12 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  app.get('/api/platforms/runtime',withUser,access.channelOnly('editor'),(req,res)=>{
  const sock=vpSockets.get(req.channelId);
  res.json({vpzone:{linked:Boolean(db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='vpzone'").get(req.channelId)),chat_connected:Boolean(sock?.ws?.readyState===WebSocket.OPEN)},kick:{linked:Boolean(db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='kick'").get(req.channelId)),webhook_enabled:process.env.KICK_WEBHOOK_ENABLED!=='false',subscription_active:db.prepare('SELECT status FROM kick_chat_status WHERE channel=?').get(req.channelId)?.status==='subscribed',detail:db.prepare('SELECT detail FROM kick_chat_status WHERE channel=?').get(req.channelId)?.detail||'Subscription not registered'}});
+ });
+ app.get('/api/platforms/kick/scopes',withUser,access.channelOnly('editor'),(req,res)=>{
+  const account=db.prepare("SELECT scopes FROM platform_oauth WHERE channel=? AND platform='kick'").get(req.channelId);
+  const requested=String(conf('kick')?.scope||'').split(/[\\s,]+/).filter(Boolean);
+  const stored=String(account?.scopes||'').split(/[\\s,]+/).filter(Boolean);
+  res.set('Cache-Control','no-store').json({linked:Boolean(account),requested,stored,missing:requested.filter(scope=>!stored.includes(scope)),requiresReauthorisation:!stored.includes('events:subscribe')});
  });
  app.get('/api/platforms',withUser,access.channelOnly('editor'),(req,res)=>{
  const rows=db.prepare('SELECT platform,external_id,display_name,expires_at,scopes FROM platform_oauth WHERE channel=?').all(req.channelId);
