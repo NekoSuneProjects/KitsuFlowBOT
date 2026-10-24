@@ -17,7 +17,7 @@ ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) el
 ENV = ROOT / ".env"
 DEFAULTS = {"KITSUFLOW_URL": "https://kitsuflowbot.nekosunevr.co.uk",
             "KITSUFLOW_DEVICE_KEY": "", "KITSUFLOW_VOSK_MODEL": "model",
-            "KITSUFLOW_MIC_DEVICE": ""}
+            "KITSUFLOW_MIC_DEVICE": "", "KITSUFLOW_STT_ENGINE": "vosk", "KITSUFLOW_WHISPER_MODEL": "base.en"}
 
 def read_env():
     values = DEFAULTS.copy()
@@ -64,6 +64,8 @@ class App:
         self.server = tk.StringVar(value=self.settings["KITSUFLOW_URL"])
         self.key = tk.StringVar(value=self.settings["KITSUFLOW_DEVICE_KEY"])
         self.model = tk.StringVar(value=self.settings["KITSUFLOW_VOSK_MODEL"])
+        self.engine = tk.StringVar(value=self.settings.get("KITSUFLOW_STT_ENGINE", "vosk"))
+        self.whisper_model = tk.StringVar(value=self.settings.get("KITSUFLOW_WHISPER_MODEL", "base.en"))
         self.device = tk.StringVar()
         self.devices = {"System default": None}
         self.inbox = queue.Queue()
@@ -101,6 +103,10 @@ class App:
             ttk.Entry(settings, textvariable=variable, show="*" if secret else "").pack(fill="x")
         row("Dashboard URL", self.server)
         row("Device pairing key (from Voice & Clips)", self.key, True)
+        ttk.Label(settings, text="Speech recognition engine").pack(anchor="w", pady=(8, 3))
+        ttk.Combobox(settings, textvariable=self.engine, values=["vosk", "whisper"], state="readonly").pack(fill="x")
+        ttk.Label(settings, text="Whisper model (tiny.en / base.en / small.en / medium.en)").pack(anchor="w", pady=(8, 3))
+        ttk.Combobox(settings, textvariable=self.whisper_model, values=["tiny.en", "base.en", "small.en", "medium.en"], state="readonly").pack(fill="x")
         ttk.Label(settings, text="Offline Vosk model folder").pack(anchor="w", pady=(8, 3))
         modelrow = ttk.Frame(settings)
         modelrow.pack(fill="x")
@@ -214,7 +220,8 @@ class App:
         return {"KITSUFLOW_URL": self.server.get().strip(),
                 "KITSUFLOW_DEVICE_KEY": self.key.get().strip(),
                 "KITSUFLOW_VOSK_MODEL": self.model.get().strip(),
-                "KITSUFLOW_MIC_DEVICE": "" if selected is None else str(selected)}
+                "KITSUFLOW_MIC_DEVICE": "" if selected is None else str(selected),
+                "KITSUFLOW_STT_ENGINE": self.engine.get(), "KITSUFLOW_WHISPER_MODEL": self.whisper_model.get()}
 
     def save(self):
         try:
@@ -233,7 +240,7 @@ class App:
             return
         model_path = Path(values["KITSUFLOW_VOSK_MODEL"]).expanduser()
         if not model_path.is_absolute(): model_path = ROOT / model_path
-        if not valid_model(model_path):
+        if values["KITSUFLOW_STT_ENGINE"] == "vosk" and not valid_model(model_path):
             if self.downloading:
                 self.push("Model download is already running.")
                 return
@@ -257,14 +264,25 @@ class App:
         def send(kind, value): self.inbox.put((kind, value))
         try:
             import sounddevice as sd
-            from vosk import Model, KaldiRecognizer, SetLogLevel
-            SetLogLevel(-1)
+            engine = values["KITSUFLOW_STT_ENGINE"]
+            if engine == "vosk":
+                from vosk import Model, KaldiRecognizer, SetLogLevel
+                SetLogLevel(-1)
+            else:
+                from faster_whisper import WhisperModel
+                import numpy as np
             config = request(values["KITSUFLOW_URL"], values["KITSUFLOW_DEVICE_KEY"],
                              "/api/voice-companion/device/config")
             send("config", config)
             send("status", "Loading offline speech model…")
-            model = Model(str(model_path))
-            recognizer = KaldiRecognizer(model, 16000)
+            if engine == "vosk":
+                model = Model(str(model_path))
+                recognizer = KaldiRecognizer(model, 16000)
+            else:
+                model = WhisperModel(values["KITSUFLOW_WHISPER_MODEL"], device="cpu", compute_type="int8")
+                send("log", "Whisper loaded (offline after first model download).")
+                segment_buffer = bytearray()
+                last_transcribe = time.monotonic()
             audio = queue.Queue(maxsize=64)
             def capture(indata, frames, timing, status):
                 if status: send("log", "Mic status: " + str(status))
@@ -288,8 +306,19 @@ class App:
                             send("log", "Settings refresh failed: " + str(exc))
                     try: data = audio.get(timeout=0.4)
                     except queue.Empty: continue
-                    if not recognizer.AcceptWaveform(data): continue
-                    text = " ".join(json.loads(recognizer.Result()).get("text", "").lower().split())
+                    if engine == "vosk":
+                        if not recognizer.AcceptWaveform(data): continue
+                        text = " ".join(json.loads(recognizer.Result()).get("text", "").lower().split())
+                    else:
+                        segment_buffer.extend(data)
+                        # Transcribe short chunks to keep memory bounded and allow a spoken trigger to be recognised.
+                        if len(segment_buffer) < 16000 * 2 * 4: continue
+                        samples = np.frombuffer(bytes(segment_buffer), dtype=np.int16).astype(np.float32) / 32768.0
+                        segment_buffer.clear()
+                        chunks, info = model.transcribe(samples, language="en", beam_size=1,
+                            vad_filter=True, condition_on_previous_text=False)
+                        text = " ".join(" ".join(piece.text.lower().split()) for piece in chunks).strip()
+                        if text: send("log", "Whisper heard: " + text[:120])
                     phrase = config.get("phrase", "clip it")
                     if phrase not in text or now - last < config.get("cooldown", 45):
                         continue
