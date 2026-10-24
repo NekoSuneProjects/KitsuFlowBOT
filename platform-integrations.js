@@ -179,7 +179,7 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   }
   appToken=null; // invalidate a possibly revoked/stale app credential
   log(channel,'kick-chat-auth','App bot token rejected (401); attempting linked broadcaster OAuth');
-  if(!String(linked.scopes||'').split(/\\s+/).includes('chat:write'))throw Error('Kick app token rejected (401). Reconnect broadcaster with chat:write scope.');
+  if(!String(linked.scopes||'').split(/\s+/).includes('chat:write'))throw Error('Kick app token rejected (401). Reconnect broadcaster with chat:write scope.');
   const broadcasterId=Number(linked.external_id);
   if(!Number.isSafeInteger(broadcasterId)||broadcasterId<=0)throw Error('Kick broadcaster ID invalid');
   let userToken=await refresh(channel,'kick');
