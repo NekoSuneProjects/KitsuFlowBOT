@@ -174,11 +174,12 @@ async function connections(){
  c.append(metadata);
  const aiCard=card('AI stream title helper','Use your own OpenAI-compatible chat-completions URL and model. Suggestions only fill the text box; nothing is published without clicking Update selected platforms.');
  const aiState=await api('/api/creator-ai').catch(()=>({endpoint:'',model:'',hasKey:false}));
- const endpoint=input('Chat completions URL (HTTPS)',aiState.endpoint||'');
- const model=input('Model ID',aiState.model||'');
+ const endpoint=input('Chat completions URL (HTTPS)',aiState.source==='server'?'':aiState.endpoint||'');
+ const model=input('Model ID',aiState.source==='server'?'':aiState.model||'');
  const apiKey=input('API key (leave empty to keep saved key)','');
  apiKey.el.type='password';
  const aiContext=input('Title idea or vibe','Chill gameplay, welcoming to newcomers');
+ if(aiState.serverConfigured&&aiState.source==='server')aiCard.append(e('div','Using server-configured AI title model: '+aiState.model+'. No account API key required. Optional: save a channel-specific provider below to override it.','description'));
  aiCard.append(grid('cols2',endpoint.node,model.node,apiKey.node,aiContext.node),actions(btn('Save AI provider',async()=>{
   await api('/api/creator-ai','POST',{endpoint:endpoint.value(),model:model.value(),apiKey:apiKey.value()});
   notify('AI provider saved securely');
