@@ -2,7 +2,6 @@ name: Build Voice Companion Desktop Apps
 on:
   push:
     branches: [desktopapp]
-    tags: ['desktopapp-v*']
     paths:
       - 'voice-companion/**'
       - '.github/workflows/voice-companion-build.yml'
@@ -67,62 +66,84 @@ jobs:
     name: Publish versioned GitHub Release
     needs: package
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/desktopapp' || startsWith(github.ref, 'refs/tags/desktopapp-v'))
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/desktopapp'
+    concurrency:
+      group: desktopapp-release-publish
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Resolve release version and verify branch
+      - name: Determine next patch version from published releases
         id: version
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           git fetch origin desktopapp
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/desktopapp || {
-            echo "::error::Release must point to desktopapp history."
-            exit 1
-          }
-          VERSION=$(head -n 1 voice-companion/VERSION | tr -d '[:space:]')
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]] || {
-            echo "::error::Invalid VERSION. Expected 1.0.0 or 1.0.0-beta.1"
-            exit 1
-          }
-          TAG="desktopapp-v$VERSION"
-          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "$TAG" ]]; then
-            echo "::error::Release tag does not match voice-companion/VERSION"
-            exit 1
+          # Do not create a release for an obsolete build when a newer push exists.
+          if [[ "$(git rev-parse origin/desktopapp)" != "$GITHUB_SHA" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "A newer desktopapp commit exists; its workflow will publish the release."
+            exit 0
           fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # GitHub releases, not voice-companion/VERSION, are the source of truth.
+          tags="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name')"
+          best_major=0
+          best_minor=0
+          best_patch=0
+          while IFS= read -r tag; do
+            if [[ "$tag" =~ ^desktopapp-v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              major=$((10#${BASH_REMATCH[1]}))
+              minor=$((10#${BASH_REMATCH[2]}))
+              patch=$((10#${BASH_REMATCH[3]}))
+              if (( major > best_major || (major == best_major && minor > best_minor) || (major == best_major && minor == best_minor && patch > best_patch) )); then
+                best_major=$major
+                best_minor=$minor
+                best_patch=$patch
+              fi
+            fi
+          done <<< "$tags"
+          version="$best_major.$best_minor.$((best_patch + 1))"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=desktopapp-v$version" >> "$GITHUB_OUTPUT"
+          echo "Next desktop version: $version"
       - uses: actions/download-artifact@v4
+        if: steps.version.outputs.skip != 'true'
         with:
           pattern: KitsuFlowVoiceCompanion-*
           path: release-assets
       - name: Bundle versioned desktop downloads
+        if: steps.version.outputs.skip != 'true'
         shell: bash
         run: |
           cd release-assets
           for platform in windows-x64 linux-amd64; do
             test -s "KitsuFlowVoiceCompanion-$platform/KitsuFlowVoiceCompanion$([[ "$platform" == windows-x64 ]] && echo '.exe' || true)"
+            printf '%s\n' "${{ steps.version.outputs.version }}" > "KitsuFlowVoiceCompanion-$platform/VERSION"
             (cd "KitsuFlowVoiceCompanion-$platform" && zip -q -r "../KitsuFlowVoiceCompanion-${{ steps.version.outputs.tag }}-$platform.zip" .)
           done
           sha256sum KitsuFlowVoiceCompanion-*.zip > SHA256SUMS.txt
       - name: Publish GitHub Release with binaries
+        if: steps.version.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
+          set -euo pipefail
           TAG="${{ steps.version.outputs.tag }}"
-          PRERELEASE_FLAG=()
-          if [[ "$TAG" == *-*.*-* ]]; then PRERELEASE_FLAG=(--prerelease); fi
+          # Never overwrite a published release if a different workflow created it.
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $TAG already exists. Bump voice-companion/VERSION for a new release."
-            exit 0
+            echo "::error::Release $TAG already exists. Re-run the workflow to recalculate a new version."
+            exit 1
           fi
           gh release create "$TAG" release-assets/KitsuFlowVoiceCompanion-*.zip release-assets/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --title "KitsuFlow Voice Companion ${TAG#desktopapp-v}" \
             --generate-notes \
-            --target "$GITHUB_SHA" \
-            "${PRERELEASE_FLAG[@]}"
+            --target "$GITHUB_SHA"
+
