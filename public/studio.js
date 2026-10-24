@@ -94,7 +94,7 @@ async function voice(){
   for(const device of companion.devices)desktop.append(h('div','list-row',e('span',device.label+' · '+(device.last_seen||'Never connected')),btn('Revoke',async()=>{await api('/api/voice-companion/devices/'+device.id+'/revoke','POST',{});await reloadView()},'danger')));
   const desktopHistory=card('Desktop clip results','Twitch creates native clips when live. Kick and VPZone report unsupported, rather than claiming a clip exists.');
   desktopHistory.append(table(['When','Platform','Result','Details'],companion.history.map(x=>[x.created,x.platform,x.status,x.clip_id||x.detail])));
-  desktop.append(e('p','Companion source: voice-companion/ in the GitHub repository. Install Python, Vosk, sounddevice and a local speech model on the PC.','description'));
+  desktop.append(e('p','Companion source and Windows/Linux downloads: GitHub desktopapp branch (voice-companion/). Install Python, Vosk, sounddevice and a local speech model on the PC.','description'));
   return h('div','stack',desktop,desktopHistory,v,history,platformCard,triggerLog);
  }
  return h('div','stack',v,history,platformCard,triggerLog);
