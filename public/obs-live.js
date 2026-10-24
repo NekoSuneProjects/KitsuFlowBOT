@@ -1,1 +1,43 @@
-(()=>{'use strict';const el=document.getElementById('items'),mode=location.pathname.startsWith('/obs/game/')?'game':'activity';const key=encodeURIComponent(location.pathname.split('/').pop());let last=0,first=true;function line(parts,kind){const card=document.createElement('div');card.className='item';for(const [text,css] of parts){const x=document.createElement('div');x.className=css;x.textContent=text;card.append(x)}if(kind==='prepend')el.prepend(card);else el.append(card);return card}async function update(){try{const route=mode==='game'?'/api/obs/game/':'/api/obs/activity/';const res=await fetch(route+key+(mode==='activity'?'?after='+last:''),{cache:'no-store'});if(!res.ok)throw Error('HTTP '+res.status);const data=await res.json();if(mode==='game'){const entries=data.platforms||[];const signature=JSON.stringify(entries);if(el.dataset.signature!==signature){el.dataset.signature=signature;el.replaceChildren();for(const v of entries)line([[v.platform.toUpperCase(),'tag'],[v.title,'headline'],[v.game,'detail']])}}else{for(const item of data.events||[]){last=Math.max(last,item.id);if(!first)line([[item.platform.toUpperCase()+' · '+item.event_type.replaceAll('_',' '),'tag'],[(item.actor||'Viewer')+(item.detail?' · '+item.detail:''),'activity']],'prepend')}while(el.children.length>8)el.lastChild.remove();first=false}}catch(e){console.warn('OBS '+mode+' update:',e.message)}setTimeout(update,1600)}update()})();
+(()=>{'use strict';
+const el=document.getElementById('items');
+const mode=location.pathname.includes('/game/')?'game':'activity';
+const key=encodeURIComponent(location.pathname.split('/').pop());
+let last=0,first=true,signature='';
+function item(parts,platform=''){
+ const card=document.createElement('article');card.className='overlay-card platform-'+String(platform).toLowerCase();
+ for(const [value,cls] of parts){const node=document.createElement('div');node.className=cls;node.textContent=String(value??'');card.append(node)}
+ return card;
+}
+function state(message,problem=false){el.replaceChildren(item([['KITSUFLOW · '+(mode==='game'?'STREAM INFO':'ACTIVITY'),'tag'],[message,problem?'detail error-state':'overlay-subtitle']]));}
+state(mode==='game'?'Waiting for a game and title to be set in your logged-in dashboard.':'Waiting for your first follow, sub, Bits, Kicks or raid event.');
+async function refresh(){
+ try{
+  const res=await fetch('/api/obs/'+mode+'/'+key+(mode==='activity'?'?after='+last:''),{cache:'no-store'});
+  if(!res.ok)throw Error('Overlay feed HTTP '+res.status);
+  const data=await res.json();
+  if(mode==='game'){
+   const list=Array.isArray(data.platforms)?data.platforms:[];
+   const next=JSON.stringify(list);
+   if(next!==signature){
+    signature=next;el.replaceChildren();
+    if(!list.length)state('No synced stream metadata yet. Set a title and platform game in Connections.');
+    else for(const v of list)el.append(item([[v.platform.toUpperCase(),'tag'],[v.title||'Untitled stream','headline'],[v.game||'Category not set','detail']],v.platform));
+   }
+  }else{
+   const events=Array.isArray(data.events)?data.events:[];
+   if(events.length){
+    if(first)el.replaceChildren();
+    for(const v of events){
+     last=Math.max(last,Number(v.id)||0);
+     const eventName=String(v.event_type||'event').replaceAll('_',' ');
+     el.prepend(item([[String(v.platform||'').toUpperCase()+' · '+eventName,'tag'],[String(v.actor||'Viewer')+(v.detail?' · '+v.detail:''),'activity']],v.platform));
+    }
+    while(el.childElementCount>8)el.lastElementChild.remove();
+   }
+   first=false;
+  }
+ }catch(error){console.warn('OBS overlay:',error.message);if(!el.childElementCount)state('Could not load overlay data. Check your private overlay URL.',true)}
+ setTimeout(refresh,1600);
+}
+refresh();
+})();

@@ -54,7 +54,7 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
      const bot=db.prepare("SELECT external_id,display_name FROM platform_bot_accounts WHERE platform='vpzone'").get();
      const isBot=Boolean(bot&&(String(item.user_id||item.sender?.id||'')===bot.external_id||username.toLowerCase()===bot.display_name.toLowerCase()));
      if(!isBot){
-      void relay.relay(channel,'vpzone',username,body,{isBot:false}).catch(err=>log(channel,'vpzone-relay-error',err.message));
+      void relay.relay(channel,'vpzone',username,body,{isBot:false,fragments:item.fragments||item.emotes||[]}).catch(err=>log(channel,'vpzone-relay-error',err.message));
       void handleVpzoneCommand(channel,username,body,item).catch(err=>log(channel,'vpzone-command-error',err.message));
      }
     }catch(err){log(channel,'vpzone-event-error',err.message)}
@@ -428,7 +428,7 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   if(body){
    const isBot=Boolean((bot&&String(event.sender?.user_id||event.sender?.id)===bot.external_id)||event.sender?.is_bot===true||(process.env.KICK_BOT_USERNAME&&String(event.sender?.username||'').toLowerCase()===process.env.KICK_BOT_USERNAME.toLowerCase()));
    if(!isBot&&event.sender?.is_anonymous!==true){
-    void relay.relay(linked.channel,'kick',event.sender?.username||actor,body,{isBot:false}).catch(err=>log(linked.channel,'relay-error',err.message));
+    void relay.relay(linked.channel,'kick',event.sender?.username||actor,body,{isBot:false,fragments:event.fragments||[]}).catch(err=>log(linked.channel,'relay-error',err.message));
     void kickIncomingCommand(linked.channel,event).catch(err=>log(linked.channel,'kick-command-error',err.message));
    }
   }

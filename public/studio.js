@@ -172,22 +172,13 @@ async function connections(){
   for(const item of x.results)output.append(e('div',item.platform.toUpperCase()+': '+item.status+(item.error?' — '+item.error:' — '+item.category),'description'));
  },'primary')),lookup,output);
  c.append(metadata);
- const aiCard=card('AI stream title helper','Use your own OpenAI-compatible chat-completions URL and model. Suggestions only fill the text box; nothing is published without clicking Update selected platforms.');
- const aiState=await api('/api/creator-ai').catch(()=>({endpoint:'',model:'',hasKey:false}));
- const endpoint=input('Chat completions URL (HTTPS)',aiState.source==='server'?'':aiState.endpoint||'');
- const model=input('Model ID',aiState.source==='server'?'':aiState.model||'');
- const apiKey=input('API key (leave empty to keep saved key)','');
- apiKey.el.type='password';
+ const aiCard=card('AI stream title helper','Describe your stream in a few words. KitsuFlowBOT uses its server-configured AI service to suggest a catchy, searchable title. Review the suggestion before publishing.');
  const aiContext=input('Title idea or vibe','Chill gameplay, welcoming to newcomers');
- if(aiState.serverConfigured&&aiState.source==='server')aiCard.append(e('div','Using server-configured AI title model: '+aiState.model+'. No account API key required. Optional: save a channel-specific provider below to override it.','description'));
- aiCard.append(grid('cols2',endpoint.node,model.node,apiKey.node,aiContext.node),actions(btn('Save AI provider',async()=>{
-  await api('/api/creator-ai','POST',{endpoint:endpoint.value(),model:model.value(),apiKey:apiKey.value()});
-  notify('AI provider saved securely');
- },'primary'),btn('Suggest a stream title',async()=>{
+ aiCard.append(aiContext.node,actions(btn('Suggest a stream title',async()=>{
   const x=await api('/api/creator-ai/suggest','POST',{game:gameInput.value(),context:aiContext.value()});
   titleInput.el.value=x.title;
-  notify('Suggested title filled in. Review before publishing.');
- })));
+  notify('Suggested title added to the Stream title field. Review it before publishing.');
+ },'primary')));
  c.append(aiCard);
  const multiCard=card('Multi-chat OBS browser source','Read combined Twitch, Kick and VPZone chat in OBS without cross-posting. The private source URL acts as a secret, and browser speech synthesis can read messages aloud.');
  const multi=await api('/api/multichat/settings').catch(()=>({configured:false,tts_enabled:false}));
@@ -215,14 +206,18 @@ async function connections(){
    }else row.append(e('span','Not configured','pill'));
    providerCard.append(row);
  }
- const relayData=await api('/api/relay').catch(()=>({routes:[],history:[]}));
- const relayCard=card('Cross-platform chat relay','Relay is off by default. Enable only directions you want. Messages are labelled by source and protected against loops.');
- for(const [source,target] of [['twitch','kick'],['kick','twitch'],['twitch','vpzone'],['vpzone','twitch'],['kick','vpzone'],['vpzone','kick']]){
-  const original=relayData.routes.find(r=>r.source===source&&r.target===target);
-  const toggle=input(source.toUpperCase()+' → '+target.toUpperCase(),Boolean(original?.enabled),'checkbox');
-  const line=h('div','list-row',toggle.node,btn('Save',async()=>{await api('/api/relay','POST',{source,target,enabled:toggle.value()});notify('Relay updated');await reloadView()}));
-  relayCard.append(line);
- }
+ const relayData=await api('/api/relay').catch(()=>({enabled:false,routes:[],history:[]}));
+ const relayCard=card('Cross-platform chat relay','One master toggle. Choose which connected platforms participate; enabled platforms share messages with each other. OBS multi-chat works independently without relay.');
+ const relayEnabled=input('Enable cross-platform chat relay',Boolean(relayData.enabled),'checkbox');
+ const active=new Set((relayData.routes||[]).filter(r=>r.enabled).flatMap(r=>[r.source,r.target]));
+ const selected={};
+ for(const platform of ['twitch','kick','vpzone'])selected[platform]=input('Include '+platform.toUpperCase(),active.has(platform),'checkbox');
+ relayCard.append(relayEnabled.node,h('div','kf-platforms',...Object.values(selected).map(x=>x.node)),actions(btn('Save relay settings',async()=>{
+  const platforms=Object.entries(selected).filter(([,control])=>control.value()).map(([name])=>name);
+  await api('/api/relay/group','POST',{enabled:relayEnabled.value(),platforms});
+  notify('Cross-platform relay settings saved');
+  await reloadView();
+ },'primary')));
  const relayLog=card('Chat relay history','Latest routed messages and their delivery status.');
  relayLog.append(table(['Source','Target','Sender','Status'],relayData.history.map(x=>[x.source,x.target,x.sender,x.status])));
  const feed=card('Cross-platform activity','Verified provider events appear here when event delivery is configured. Twitch remains the primary dashboard login.');
