@@ -133,6 +133,7 @@ res.redirect('/dashboard')}));
 app.post('/logout',csrf,(req,res)=>req.session.destroy(()=>res.json({ok:true})));
 const access=installAccess({app,db,withUser,csrf,safe,log});
 const streamActivity=installStreamActivity({app,db,withUser,access});
+streamActivity.setSender('twitch',say);
 app.get('/api/admin/logs',withUser,(req,res)=>{if(!isOperator(req.session.uid))return res.status(403).json({error:'Operator access required'});res.set('Cache-Control','no-store').json(db.prepare('SELECT l.channel,c.login,l.event,l.detail,l.created FROM logs l LEFT JOIN channels c ON c.id=l.channel ORDER BY l.id DESC LIMIT 250').all())});
 const creatorTools=installCreatorTools({app,db,withUser,csrf,access,enc,dec});
 const relay=installRelay({app,db,withUser,csrf,access,isOperator,log,observe:creatorTools.observe});
