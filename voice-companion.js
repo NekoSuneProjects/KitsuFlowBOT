@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 // Device key is separate from Twitch/streamer OAuth credentials; never sent to the microphone client.
-export function installVoiceCompanion({app,db,withUser,csrf,access,api,clip,log}){
+export function installVoiceCompanion({app,db,withUser,csrf,access,api,clip,log,say}){
  db.exec(`CREATE TABLE IF NOT EXISTS voice_companion_devices(
  id TEXT PRIMARY KEY,channel TEXT NOT NULL,label TEXT NOT NULL,secret_hash TEXT NOT NULL UNIQUE,
  created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,last_seen TEXT,revoked INTEGER NOT NULL DEFAULT 0);
@@ -73,8 +73,19 @@ export function installVoiceCompanion({app,db,withUser,csrf,access,api,clip,log}
     const state=await api(channel,'streams?user_id='+encodeURIComponent(channel));
     if(!state.data?.length){record('twitch','offline','Twitch is not currently live');continue}
     const created=await clip(channel);
-    record('twitch','created','Clip request accepted by Twitch',String(created.id||''));
-    log(channel,'companion-clip',String(created.id||''));
+    const clipId=String(created.id||'');
+    record('twitch','created','Clip request accepted by Twitch',clipId);
+    log(channel,'companion-clip',clipId);
+    // Chat delivery is best-effort and must never invalidate a successful clip.
+    if(clipId){
+     try{
+      await say(channel,'Desktop clip created: https://clips.twitch.tv/'+clipId);
+      log(channel,'companion-clip-chat',clipId);
+     }catch(chatError){
+      log(channel,'companion-clip-chat-error',String(chatError.message||chatError).slice(0,180));
+      results[results.length-1].detail='Clip created, but bot could not post the link to Twitch chat';
+     }
+    }
    }catch(err){record('twitch','failed',String(err.message||err).slice(0,180))}
    if(s.routing==='first'&&results.some(x=>x.status==='created'))break;
   }
