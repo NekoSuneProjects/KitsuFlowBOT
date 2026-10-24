@@ -206,14 +206,18 @@ async function connections(){
    }else row.append(e('span','Not configured','pill'));
    providerCard.append(row);
  }
- const relayData=await api('/api/relay').catch(()=>({routes:[],history:[]}));
- const relayCard=card('Cross-platform chat relay','Relay is off by default. Enable only directions you want. Messages are labelled by source and protected against loops.');
- for(const [source,target] of [['twitch','kick'],['kick','twitch'],['twitch','vpzone'],['vpzone','twitch'],['kick','vpzone'],['vpzone','kick']]){
-  const original=relayData.routes.find(r=>r.source===source&&r.target===target);
-  const toggle=input(source.toUpperCase()+' → '+target.toUpperCase(),Boolean(original?.enabled),'checkbox');
-  const line=h('div','list-row',toggle.node,btn('Save',async()=>{await api('/api/relay','POST',{source,target,enabled:toggle.value()});notify('Relay updated');await reloadView()}));
-  relayCard.append(line);
- }
+ const relayData=await api('/api/relay').catch(()=>({enabled:false,routes:[],history:[]}));
+ const relayCard=card('Cross-platform chat relay','One master toggle. Choose which connected platforms participate; enabled platforms share messages with each other. OBS multi-chat works independently without relay.');
+ const relayEnabled=input('Enable cross-platform chat relay',Boolean(relayData.enabled),'checkbox');
+ const active=new Set((relayData.routes||[]).filter(r=>r.enabled).flatMap(r=>[r.source,r.target]));
+ const selected={};
+ for(const platform of ['twitch','kick','vpzone'])selected[platform]=input('Include '+platform.toUpperCase(),active.has(platform),'checkbox');
+ relayCard.append(relayEnabled.node,h('div','kf-platforms',...Object.values(selected).map(x=>x.node)),actions(btn('Save relay settings',async()=>{
+  const platforms=Object.entries(selected).filter(([,control])=>control.value()).map(([name])=>name);
+  await api('/api/relay/group','POST',{enabled:relayEnabled.value(),platforms});
+  notify('Cross-platform relay settings saved');
+  await reloadView();
+ },'primary')));
  const relayLog=card('Chat relay history','Latest routed messages and their delivery status.');
  relayLog.append(table(['Source','Target','Sender','Status'],relayData.history.map(x=>[x.source,x.target,x.sender,x.status])));
  const feed=card('Cross-platform activity','Verified provider events appear here when event delivery is configured. Twitch remains the primary dashboard login.');
