@@ -83,15 +83,15 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base})
  const r=await fetch('https://api.kick.com/public/v1/public-key',{signal:AbortSignal.timeout(10000)});
  if(!r.ok)throw Error('Kick public key retrieval failed');const j=await r.json();const pem=j.data?.public_key||j.public_key;
  if(!pem)throw Error('Kick public key missing');kickKey=crypto.createPublicKey(pem);keyTime=Date.now();return kickKey}
- app.post('/webhooks/kick',expressRaw(),safe(async(req,res)=>{
+ app.post('/webhooks/kick',safe(async(req,res)=>{
  const msg=req.get('Kick-Event-Message-Id'),timestamp=req.get('Kick-Event-Message-Timestamp'),sig=req.get('Kick-Event-Signature'),kind=req.get('Kick-Event-Type');
- if(!msg||!timestamp||!sig||!kind||!Buffer.isBuffer(req.body))return res.sendStatus(400);
+ if(!msg||!timestamp||!sig||!kind||!Buffer.isBuffer(req.rawBody))return res.sendStatus(400);
  const time=Date.parse(timestamp);if(!Number.isFinite(time)||Math.abs(Date.now()-time)>300000)return res.sendStatus(401);
- const signed=Buffer.concat([Buffer.from(msg+'.'+timestamp+'.'),req.body]);
+ const signed=Buffer.concat([Buffer.from(msg+'.'+timestamp+'.'),req.rawBody]);
  const key=await currentKickKey();
  if(!crypto.verify('RSA-SHA256',signed,key,Buffer.from(sig,'base64')))return res.sendStatus(401);
  if(db.prepare('SELECT 1 FROM platform_delivery WHERE platform=? AND message_id=?').get('kick',msg))return res.sendStatus(204);
- const event=JSON.parse(req.body.toString('utf8'));
+ const event=JSON.parse(req.rawBody.toString('utf8'));
  const broadcaster=String(event.broadcaster?.user_id||event.broadcaster_user_id||event.broadcaster?.id||'');
  const linked=db.prepare('SELECT channel FROM platform_oauth WHERE platform=? AND external_id=?').get('kick',broadcaster);
  db.prepare('INSERT INTO platform_delivery(platform,message_id,created_at) VALUES(?,?,?)').run('kick',msg,Date.now());
@@ -106,4 +106,3 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base})
  res.sendStatus(204);
  }));
 }
-function expressRaw(){return (req,res,next)=>{let chunks=[],size=0;req.on('data',b=>{size+=b.length;if(size>262144){res.sendStatus(413);req.destroy();return}chunks.push(b)});req.on('end',()=>{req.body=Buffer.concat(chunks);next()});req.on('error',next)}}
