@@ -114,6 +114,17 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  const authUser=(req,res,next)=>req.session.uid?next():res.status(401).json({error:'Sign in with Twitch first'});
  const verifyChannel=(req,res,next)=>{const channel=access.channelFor(req);if(!channel||!access.can(req.session.uid,channel,'owner'))return res.status(403).json({error:'Channel owner required'});req.channelId=channel;next()};
  app.post('/api/platforms/kick/subscribe',withUser,access.channelOnly('owner'),csrf,safe(async(req,res)=>{await subscribeKickChat(req.channelId);res.json(db.prepare('SELECT status,detail,updated_at FROM kick_chat_status WHERE channel=?').get(req.channelId))}));
+ const chatStatus=channel=>{
+  const vpLinked=Boolean(db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='vpzone'").get(channel));
+  const kickLinked=Boolean(db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='kick'").get(channel));
+  const vp=vpSockets.get(channel);
+  const kick=db.prepare('SELECT status,detail FROM kick_chat_status WHERE channel=?').get(channel);
+  const kickStatus=!kickLinked?'pending':kick?.status==='subscribed'?'connected':(kick?.status==='failed'||kick?.status==='error'||kick?.status==='missing_scope')?'failed':'pending';
+  return {
+   vpzone:{status:!vpLinked?'pending':vp?.ws?.readyState===WebSocket.OPEN?'connected':vp?.ws?.readyState===WebSocket.CONNECTING?'pending':'failed',detail:vpLinked?'Live chat WebSocket':'Connect VPZone'},
+   kick:{status:kickStatus,detail:kickLinked?String(kick?.detail||'Subscription awaiting confirmation').slice(0,120):'Connect Kick'}
+  };
+ };
  app.get('/api/platforms/runtime',withUser,access.channelOnly('owner'),(req,res)=>{
  const sock=vpSockets.get(req.channelId);
  res.json({vpzone:{linked:Boolean(db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='vpzone'").get(req.channelId)),chat_connected:Boolean(sock?.ws?.readyState===WebSocket.OPEN)},kick:{linked:Boolean(db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='kick'").get(req.channelId)),webhook_enabled:process.env.KICK_WEBHOOK_ENABLED!=='false',subscription_active:db.prepare('SELECT status FROM kick_chat_status WHERE channel=?').get(req.channelId)?.status==='subscribed',detail:db.prepare('SELECT detail FROM kick_chat_status WHERE channel=?').get(req.channelId)?.detail||'Subscription not registered'}});
@@ -460,5 +471,6 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  const activityTimer=setInterval(()=>{void pollVpzoneActivity().catch(err=>console.error('VPZone activity poll',err.message))},60000);
  activityTimer.unref?.();
  setImmediate(()=>{void pollVpzoneActivity().catch(err=>console.error('VPZone activity poll',err.message))});
+ return {chatStatus};
 
 }
