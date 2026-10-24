@@ -12,6 +12,10 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
  CREATE TABLE IF NOT EXISTS multichat_messages(id INTEGER PRIMARY KEY AUTOINCREMENT,channel TEXT NOT NULL,platform TEXT NOT NULL,sender TEXT NOT NULL,content TEXT NOT NULL,created TEXT DEFAULT CURRENT_TIMESTAMP);
  CREATE INDEX IF NOT EXISTS multichat_channel_idx ON multichat_messages(channel,id DESC);
  CREATE TABLE IF NOT EXISTS stream_overlay_metadata(channel TEXT NOT NULL,platform TEXT NOT NULL,title TEXT NOT NULL,game TEXT NOT NULL,updated TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(channel,platform));`);
+ for(const [column,definition] of [['tts_rate','REAL NOT NULL DEFAULT 1.08'],['tts_volume','REAL NOT NULL DEFAULT 1']]){
+  const columns=db.prepare('PRAGMA table_info(multichat_sources)').all().map(r=>r.name);
+  if(!columns.includes(column))db.exec('ALTER TABLE multichat_sources ADD COLUMN '+column+' '+definition);
+ }
  const owner=[withUser,access.channelOnly('owner'),csrf];
  let providerStatus=()=>({});
  const setProviderStatus=fn=>{providerStatus=fn};
@@ -46,8 +50,8 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
   }catch(e){res.status(502).json({error:'Title suggestion failed: '+String(e.message).slice(0,130)})}
  });
  app.get('/api/multichat/settings',withUser,access.channelOnly('owner'),(req,res)=>{
-  const r=db.prepare('SELECT tts_enabled FROM multichat_sources WHERE channel=?').get(req.channelId);
-  res.set('Cache-Control','no-store').json({configured:Boolean(r),tts_enabled:Boolean(r?.tts_enabled)});
+  const r=db.prepare('SELECT tts_enabled,tts_rate,tts_volume FROM multichat_sources WHERE channel=?').get(req.channelId);
+  res.set('Cache-Control','no-store').json({configured:Boolean(r),tts_enabled:Boolean(r?.tts_enabled),tts_rate:r?.tts_rate??1.08,tts_volume:r?.tts_volume??1});
  });
  app.post('/api/multichat/source',...owner,(req,res)=>{
   const secret=crypto.randomBytes(32).toString('base64url');
@@ -56,13 +60,15 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
  });
  app.post('/api/multichat/settings',...owner,(req,res)=>{
   if(typeof req.body?.tts_enabled!=='boolean')return res.status(400).json({error:'Invalid TTS option'});
-  db.prepare('UPDATE multichat_sources SET tts_enabled=? WHERE channel=?').run(req.body.tts_enabled?1:0,req.channelId);
+  const rate=Number(req.body.tts_rate??1.08),volume=Number(req.body.tts_volume??1);
+  if(!Number.isFinite(rate)||rate<0.5||rate>2||!Number.isFinite(volume)||volume<0||volume>1)return res.status(400).json({error:'Invalid TTS rate or volume'});
+  db.prepare('UPDATE multichat_sources SET tts_enabled=?,tts_rate=?,tts_volume=? WHERE channel=?').run(req.body.tts_enabled?1:0,rate,volume,req.channelId);
   res.json({ok:true});
  });
  const source=(req,res,next)=>{
   const key=String(req.params.key||'');
   if(!/^[A-Za-z0-9_-]{43}$/.test(key))return res.sendStatus(404);
-  const row=db.prepare('SELECT channel,tts_enabled FROM multichat_sources WHERE secret_hash=?').get(hash(key));
+  const row=db.prepare('SELECT channel,tts_enabled,tts_rate,tts_volume FROM multichat_sources WHERE secret_hash=?').get(hash(key));
   if(!row)return res.sendStatus(404);req.source=row;next();
  };
  app.get('/multichat/:key',source,(req,res)=>{
@@ -92,7 +98,7 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
  app.get('/api/multichat/feed/:key',source,(req,res)=>{
   const after=Math.max(0,Number(req.query.after)||0);
   const messages=db.prepare('SELECT id,platform,sender,content,created FROM multichat_messages WHERE channel=? AND id>? ORDER BY id ASC LIMIT 60').all(req.source.channel,after);
-  res.set('Cache-Control','no-store').json({messages,tts_enabled:Boolean(req.source.tts_enabled),connections:providerStatus(req.source.channel)});
+  res.set('Cache-Control','no-store').json({messages,tts_enabled:Boolean(req.source.tts_enabled),tts_rate:req.source.tts_rate,tts_volume:req.source.tts_volume,connections:providerStatus(req.source.channel)});
  });
  function observe(channel,platform,sender,content){
   if(!['twitch','kick','vpzone'].includes(platform))return;
