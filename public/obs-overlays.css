@@ -2,3 +2,17 @@
 
 /* Distinct multi-chat message cards, inspired by multi-platform streaming tools */
 #feed{gap:10px;padding:14px 18px 18px}#feed .message{display:block;flex:none;border-left-width:3px;padding:12px 15px;border-radius:14px;background:linear-gradient(110deg,rgba(9,16,26,.94),rgba(14,22,34,.91));transition:background .2s}#feed .message:has(.platform.twitch){border-left-color:#9b70ed}#feed .message:has(.platform.kick){border-left-color:#46df87}#feed .message:has(.platform.vpzone){border-left-color:#5cafe8}.chat-header{display:flex;gap:9px;align-items:center;min-width:0;margin-bottom:8px}.chat-header .sender{flex:1;font-size:14px;min-width:0;overflow-wrap:anywhere;color:#e9fff7}.chat-time{font-size:11px;color:#9daebe;white-space:nowrap}.chat-body{font-size:14px;color:#f4f8ff;white-space:pre-wrap;line-height:1.6;overflow-wrap:anywhere}.chat-emote{width:auto;height:28px;max-width:90px;object-fit:contain;vertical-align:middle;margin:0 2px}.platform{font-size:10px;line-height:1.4;padding:4px 8px;white-space:nowrap}@media(max-width:500px){#feed{gap:7px;padding:8px}#feed .message{padding:10px}.chat-emote{height:24px}}
+
+/* Per-provider compact status rail (separate from overall overlay status) */
+#connection-status{justify-content:flex-end;align-items:center;gap:7px;padding:12px 16px 0}
+#connection-status .connection{gap:7px;padding:7px 10px;border-radius:999px;background:rgba(11,19,29,.95);min-width:0}
+.connection-brand{font-weight:900;font-size:12px;display:grid;place-items:center;height:19px;width:19px;border-radius:6px;background:#345065;color:white}
+.platform-twitch .connection-brand{background:#793cce}.platform-kick .connection-brand{background:#168a43}.platform-vpzone .connection-brand{background:#2973a4}
+.connection-name{font-size:11px;font-weight:750}
+.connection-mark{display:grid;place-items:center;height:17px;width:17px;border-radius:50%;font-size:12px;font-weight:900;color:#071c16;background:#e4a43c}
+.connection.connected .connection-mark{background:#45e6a0;color:#073321}
+.connection.failed .connection-mark{background:#ff6273;color:#4b0714}
+.connection.pending .connection-mark{background:transparent;border:2px solid #e7aa3b;border-top-color:transparent;animation:kf-connecting .9s linear infinite}
+@keyframes kf-connecting{to{transform:rotate(360deg)}}
+@media(max-width:560px){.connection-name{display:none}#connection-status .connection{padding:6px 8px}}
+@media(prefers-reduced-motion:reduce){.connection.pending .connection-mark{animation:none;border-top-color:#e7aa3b;opacity:.7}}
