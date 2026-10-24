@@ -15,6 +15,7 @@ import {installAccess} from './access.js';
 import {installPlatforms} from './platform-integrations.js';
 import {installRelay} from './chat-relay.js';
 import {installCreatorTools} from './creator-tools.js';
+import {createScamFilter} from './scam-filter.js';
 
 const PORT=Number(process.env.PORT||3000), BASE=(process.env.BASE_URL||'http://localhost:3000').replace(/\/$/,'');
 const CID=process.env.TWITCH_CLIENT_ID, SECRET=process.env.TWITCH_CLIENT_SECRET;
@@ -40,7 +41,7 @@ async function api(id,route,method='GET',body){const t=await token(id);const r=a
 const botId=()=>db.prepare("SELECT value FROM config WHERE key='bot_id'").get()?.value;
 const adminIds=new Set((process.env.BOT_ADMIN_TWITCH_IDS||process.env.BOT_ADMIN_TWITCH_ID||'').split(',').map(s=>s.trim()).filter(s=>/^[0-9]+$/.test(s)));
 const isOperator=id=>Boolean(id&&adminIds.has(String(id)));
-const BOT_SCOPES='user:read:chat user:write:chat user:bot moderator:manage:banned_users';
+const BOT_SCOPES='user:read:chat user:write:chat user:bot moderator:manage:banned_users moderator:manage:chat_messages clips:edit';
 const STREAMER_SCOPES=[
  'channel:bot','clips:edit','user:read:email','user:read:broadcast','channel:manage:broadcast',
  'channel:manage:redemptions','channel:read:redemptions','bits:read','channel:read:subscriptions',
@@ -51,7 +52,7 @@ const STREAMER_SCOPES=[
 async function say(channel,message){const id=botId();if(!id)throw Error('Connect bot first');await api(id,'chat/messages','POST',{broadcaster_id:channel,sender_id:id,message:String(message).slice(0,500)})}
 async function lookup(login){const id=botId();if(!id)throw Error('Bot not connected');const u=await api(id,'users?login='+encodeURIComponent(login.replace(/^@/,'')));if(!u.data?.[0])throw Error('User not found');return u.data[0].id}
 async function moderate(channel,user,duration,reason){const id=botId();if(!id)throw Error('Connect bot first');if(id===user||channel===user)throw Error('Cannot moderate bot or broadcaster');await api(id,'moderation/bans?broadcaster_id='+channel+'&moderator_id='+id,'POST',{data:{user_id:user,...(duration?{duration}:{}),reason:reason||'KitsuFlowBOT moderation'}})}
-async function clip(channel){const data=await api(channel,'clips?broadcaster_id='+channel,'POST');const c=data.data?.[0];if(!c)throw Error('No live clip returned');log(channel,'clip',c.edit_url||c.id);return c}
+async function clip(channel){const id=botId();if(!id)throw Error('Connect the global bot first');const data=await api(id,'clips?broadcaster_id='+encodeURIComponent(channel)+'&duration=60','POST');const c=data.data?.[0];if(!c)throw Error('No live clip returned');log(channel,'clip',c.edit_url||c.id);return c}
 const GLOBAL_COMMANDS={
  commands:{level:'everyone',description:'Show this channel\'s public commands page'},
  accountage:{level:'everyone',description:'Show Twitch account age'},
@@ -70,6 +71,7 @@ const globalListing=channel=>Object.entries(GLOBAL_COMMANDS).map(([name,item])=>
 const duration=ms=>{let seconds=Math.max(0,Math.floor(ms/1000));if(!seconds)return '0 seconds';const out=[];for(const [n,label] of [[31536000,'year'],[86400,'day'],[3600,'hour'],[60,'minute'],[1,'second']]){const value=Math.floor(seconds/n);if(value){out.push(value+' '+label+(value===1?'':'s'));seconds-=value*n}if(out.length>=2)break}return out.join(' ')};
 const resolveViewer=async(login,fallback)=>{if(!login)return fallback;const account=await api(botId(),'users?login='+encodeURIComponent(login.replace(/^@/,'')));return account.data?.[0]||null};
 const numberArg=value=>{const n=Number(value);return Number.isSafeInteger(n)&&n>=0&&n<=1000000?n:null};
+const scamFilter=createScamFilter({log});
 const cooldowns=new Map();
 const recentChatters=new Map();
 const allowed=(level,e)=>level==='everyone'||e.badges?.some(b=>b.set_id==='broadcaster'||b.set_id==='moderator')||(level==='subscriber'&&e.badges?.some(b=>b.set_id==='subscriber'));
@@ -79,7 +81,16 @@ if((e.message?.text||'').trim()){
  members.set(e.chatter_user_id,{login:e.chatter_user_login,last:Date.now()});
  for(const [id,m] of members)if(Date.now()-m.last>600000)members.delete(id);
 }
-void relay.relay(ch.id,'twitch',e.chatter_user_login,e.message?.text||'',{isBot:false,fragments:e.message?.fragments||[]}).catch(err=>log(ch.id,'relay-error',err.message));
+const rawText=e.message?.text||'';
+const bad=scamFilter.match(rawText);
+if(bad&&!e.badges?.some(b=>b.set_id==='broadcaster'||b.set_id==='moderator')){
+ log(ch.id,'scam-domain',e.chatter_user_login+' '+bad.blocked);
+ const id=botId(),messageId=String(e.message_id||e.message?.id||'');
+ if(id&&messageId){try{await api(id,'moderation/chat?broadcaster_id='+encodeURIComponent(ch.id)+'&moderator_id='+encodeURIComponent(id)+'&message_id='+encodeURIComponent(messageId),'DELETE')}catch(err){log(ch.id,'scam-delete-error',err.message)}}
+ try{await moderate(ch.id,e.chatter_user_id,null,'Known scam/phishing domain: '+bad.blocked)}catch(err){log(ch.id,'scam-ban-error',err.message)}
+ return;
+}
+void relay.relay(ch.id,'twitch',e.chatter_user_login,rawText,{isBot:false,fragments:e.message?.fragments||[]}).catch(err=>log(ch.id,'relay-error',err.message));
 const value=(e.message?.text||'').trim(),parts=value.split(/\s+/),cmd=parts[0]?.toLowerCase(),isMod=e.badges?.some(b=>b.set_id==='moderator'||b.set_id==='broadcaster');
 if(ch.links&&!isMod&&/https?:\/\/|(?:[a-z0-9-]+\.)+(?:com|net|org|xyz|click|shop|ru|co\.uk)\b/i.test(value)){try{await moderate(ch.id,e.chatter_user_id,60,'Unapproved URL');log(ch.id,'timeout',e.chatter_user_login+' URL')}catch(err){log(ch.id,'error',err.message)}return}
 try{
@@ -154,7 +165,7 @@ if(GLOBAL_COMMANDS[globalName]&&isGlobalEnabled(ch.id,globalName)){
  }
 }
 
-if(cmd==='!clip'){if(!isMod)return;const c=await clip(ch.id);await say(ch.id,'Clip created: https://clips.twitch.tv/'+c.id);return}
+if(cmd==='!clip'){if(!isMod)return;try{const c=await clip(ch.id);await say(ch.id,'Clip requested (up to 60 seconds): https://clips.twitch.tv/'+c.id)}catch(err){log(ch.id,'clip-error',err.message);await say(ch.id,'Clip failed. Ensure the shared bot is connected with clips:edit and the channel is live.')}return}
 if((cmd==='!ban'||cmd==='!timeout')&&isMod){const target=parts[1];if(!target)return;const uid=await lookup(target);const seconds=cmd==='!timeout'?Math.max(1,Math.min(1209600,Number(parts[2])||600)):null;await moderate(ch.id,uid,seconds,parts.slice(cmd==='!timeout'?3:2).join(' ')||'Moderator command');log(ch.id,cmd,target);await say(ch.id,target+' '+(seconds?'timed out':'banned'));return}
 if(cmd==='!uptime'){const s=await api(ch.id,'streams?user_id='+ch.id);await say(ch.id,s.data?.[0]?'Live since '+new Date(s.data[0].started_at).toLocaleString():'Stream is offline');return}
 const custom=db.prepare('SELECT * FROM commands WHERE channel=? AND name=?').get(ch.id,cmd.slice(1));if(!custom||engagement.reserved.has(cmd.slice(1))||!allowed(custom.level,e))return;
@@ -281,6 +292,7 @@ app.post('/api/admin/bot/device/check',withUser,requireAdmin,csrf,safe(async(req
  const bot=await storeBotToken(body,req.session.uid);
  res.json({status:'connected',bot});
 }));
+app.get('/api/admin/scam-feeds',withUser,requireAdmin,(req,res)=>res.json(scamFilter.status()));
 app.get('/api/admin/bot/status',withUser,requireAdmin,(req,res)=>{
  const id=botId(),b=getAccount(id);
  res.json({admins_configured:adminIds.size,bot:b?{id:b.id,login:b.login,scopes:JSON.parse(b.scopes||'[]')}:null,connected:Boolean(b)});
