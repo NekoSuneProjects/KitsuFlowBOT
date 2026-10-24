@@ -125,7 +125,7 @@ const r=await fetch('https://id.twitch.tv/oauth2/token',{method:'POST',body:new 
 const who=await fetch('https://api.twitch.tv/helix/users',{headers:{'Client-Id':CID,Authorization:'Bearer '+t.access_token}});if(!who.ok)throw Error('User lookup failed');const u=(await who.json()).data[0];
 db.prepare('INSERT INTO accounts(id,login,display,access,refresh,expires,scopes) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET login=excluded.login,display=excluded.display,access=excluded.access,refresh=excluded.refresh,expires=excluded.expires,scopes=excluded.scopes').run(u.id,u.login,u.display_name,enc(t.access_token),enc(t.refresh_token),Date.now()+t.expires_in*1000,JSON.stringify(t.scope||[]));
 if(s.role==='bot'&&u.id===s.owner)throw Error('A separate bot Twitch account is required; do not authorise your admin streamer account as the bot.');
-if(s.role==='streamer'){req.session.uid=u.id;db.prepare('INSERT INTO channels(id,login) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET login=excluded.login').run(u.id,u.login)}
+if(s.role==='streamer'){req.session.uid=u.id;db.prepare('INSERT INTO channels(id,login) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET login=excluded.login').run(u.id,u.login);connectEngagement(u.id)}
 else{if(!s.owner||s.owner!==req.session.uid||!isOperator(s.owner))throw Error('Only the KitsuFlowBOT operator may configure the shared bot');db.prepare("INSERT INTO config(key,value) VALUES('bot_id',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(u.id);connectChat()}
 res.redirect('/dashboard')}));
 app.post('/logout',csrf,(req,res)=>req.session.destroy(()=>res.json({ok:true})));
