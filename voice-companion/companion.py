@@ -367,7 +367,8 @@ class App:
                     self.stop_button.config(state="disabled")
         except queue.Empty:
             pass
-        self.root.after(100, self.process_messages)
+        if not self.closing.is_set():
+            self.root.after(100, self.process_messages)
 
     def browse_model(self):
         directory = filedialog.askdirectory(title="Select extracted Vosk model folder")
