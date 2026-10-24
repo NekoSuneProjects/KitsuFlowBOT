@@ -69,8 +69,49 @@ function enhanceCreatorPanels(root){
  });
 }
 function reports(){return grid('stats',stat('Total members',creator.stats.members,'♙','Chat-based activity'),stat('Loyalty points',creator.stats.points,'✧','Current issued balances'),stat('Redemptions',creator.stats.redemptions,'▣','Store requests'),stat('Queue',creator.queue.length,'☷','Waiting viewers'))}
-function commands(){return wrap(form('Create custom command',[['name','Command name (! without prefix)'],['response','Bot response'],['cooldown','Cooldown in seconds','number',10],['level','Permission','options',['everyone','subscriber','moderator']]],'Save command',x=>api('/api/commands','POST',x)),h('section','card',e('h2','Saved commands'),table(['Command','Response','Level','Action'],state.commands.map(x=>['!'+x.name,x.response,x.level,btn('Delete',async()=>{await api('/api/commands/'+encodeURIComponent(x.name),'DELETE');await reloadView()},'danger')]))))}
-function timers(){return wrap(form('Create chat timer',[['name','Timer name'],['message','Announcement message'],['minutes','Interval (minutes)','number',15]],'Save timer',x=>api('/api/engagement/timer','POST',x)),h('section','card',e('h2','Current timers'),list(engagement.timers,x=>x.name+' · Every '+x.minutes+' minutes · '+x.message,x=>api('/api/engagement/timer/'+x.name,'DELETE'))))}
+function editorSlot(id){const node=h('div','');node.id=id;return node}
+function editCommand(item){
+ const pane=card('Edit !'+item.name,'Update the response, permission and cooldown without deleting the command.');
+ const response=input('Bot response',item.response,'textarea');
+ const cooldown=input('Cooldown (seconds)',item.cooldown,'number');
+ const level=selector('Permission',['everyone','subscriber','moderator'],item.level);
+ pane.append(grid('cols2',response.node,cooldown.node,level.node),
+  actions(btn('Save changes',async()=>{await api('/api/commands','POST',{name:item.name,response:response.value(),cooldown:cooldown.value(),level:level.value()});notify('Command updated');await reloadView()},'primary'),
+   btn('Cancel',()=>reloadView())));
+ return pane;
+}
+function commands(){
+ const records=state.commands.map(x=>[
+  '!'+x.name,x.response,x.level,
+  actions(btn('Edit',()=>{const target=$('#command-editor');target.replaceChildren(editCommand(x));target.scrollIntoView({behavior:'smooth',block:'nearest'})}),
+   btn('Delete',async()=>{if(!confirm('Delete !'+x.name+'?'))return;await api('/api/commands/'+encodeURIComponent(x.name),'DELETE');await reloadView()},'danger'))
+ ]);
+ return h('div','stack',h('div','grid cols2',
+  form('Create custom command',[['name','Command name (! without prefix)'],['response','Bot response'],['cooldown','Cooldown in seconds','number',10],['level','Permission','options',['everyone','subscriber','moderator']]],'Save command',x=>api('/api/commands','POST',x)),
+  h('section','card',e('h2','Saved commands'),table(['Command','Response','Level','Actions'],records))),
+  editorSlot('command-editor'));
+}
+function editTimer(item){
+ const pane=card('Edit timer: '+item.name,'Update its message, interval and enabled state.');
+ const message=input('Announcement message',item.message,'textarea');
+ const minutes=input('Interval (minutes)',item.minutes,'number');
+ const enabled=input('Enabled',Boolean(item.enabled),'checkbox');
+ pane.append(grid('cols2',message.node,minutes.node,enabled.node),
+  actions(btn('Save changes',async()=>{await api('/api/engagement/timer','POST',{name:item.name,message:message.value(),minutes:minutes.value(),enabled:enabled.value()});notify('Timer updated');await reloadView()},'primary'),
+   btn('Cancel',()=>reloadView())));
+ return pane;
+}
+function timers(){
+ const rows=engagement.timers.map(x=>[
+  x.name,x.message,'Every '+x.minutes+' min',x.enabled?'Enabled':'Paused',
+  actions(btn('Edit',()=>{const target=$('#timer-editor');target.replaceChildren(editTimer(x));target.scrollIntoView({behavior:'smooth',block:'nearest'})}),
+   btn('Delete',async()=>{if(!confirm('Delete timer '+x.name+'?'))return;await api('/api/engagement/timer/'+encodeURIComponent(x.name),'DELETE');await reloadView()},'danger'))
+ ]);
+ return h('div','stack',h('div','grid cols2',
+   form('Create chat timer',[['name','Timer name'],['message','Announcement message'],['minutes','Interval (minutes)','number',15]],'Save timer',x=>api('/api/engagement/timer','POST',x)),
+   h('section','card',e('h2','Current timers'),e('p','Timers post only while live and viewers have chatted in the past 10 minutes.','description'),table(['Name','Message','Interval','Status','Actions'],rows))),
+   editorSlot('timer-editor'));
+}
 function moderation(){return wrap(form('Banned words',[['word','Word or phrase'],['action','Action','options',['log','timeout','ban']]],'Add word',x=>api('/api/engagement/word','POST',x)),form('Manual moderation',[['user','Twitch username'],['action','Action','options',['timeout','ban']],['seconds','Timeout length in seconds','number',600]],'Apply action',async x=>{if(!confirm('Moderate @'+x.user+'?'))return;await api('/api/moderate','POST',x)}),h('section','card',e('h2','Configured word filters'),list(engagement.words,x=>x.word+' → '+x.action,x=>api('/api/engagement/word/'+encodeURIComponent(x.word),'DELETE'))))}
 async function voice(){
  const voiceData=await api('/api/voice');
