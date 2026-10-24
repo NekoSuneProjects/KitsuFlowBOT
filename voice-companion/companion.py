@@ -230,7 +230,7 @@ class App:
                     continue
                 # Windows lists each input through MME, DirectSound, WASAPI and WDM-KS.
                 # Only one copy per microphone is needed in the normal view.
-                name_clean = re.sub(r"\\s*\\((?:[0-9]+-\\s*)?\\w*(?:input|output)\\w*\\)\\s*$", "", name, flags=re.I).strip()
+                name_clean = re.sub(r"\s*\((?:[0-9]+-\s*)?\w*(?:input|output)\w*\)\s*$", "", name, flags=re.I).strip()
                 key = re.sub(r"[^a-z0-9]+", "", name_clean.lower())
                 duplicate = any(x in name.lower() for x in (
                     "microsoft sound mapper", "primary sound capture driver", "stereo mix",
