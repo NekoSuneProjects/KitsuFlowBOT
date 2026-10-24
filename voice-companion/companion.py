@@ -2,6 +2,7 @@
 """KitsuFlow Voice Companion GUI. Local speech recognition; dashboard clip requests."""
 import json
 import os
+import re
 import queue
 import sys
 import threading
@@ -70,6 +71,7 @@ class App:
         self.gpu = gpu_information()
         self.device = tk.StringVar()
         self.devices = {"System default": None}
+        self.show_all_mics = tk.BooleanVar(value=False)
         self.inbox = queue.Queue()
         self.stop = threading.Event()
         self.thread = None
@@ -124,6 +126,8 @@ class App:
         self.micbox = ttk.Combobox(microw, textvariable=self.device, state="readonly")
         self.micbox.pack(side="left", fill="x", expand=True)
         ttk.Button(microw, text="Refresh", command=self.refresh_mics).pack(side="left", padx=(6, 0))
+        ttk.Checkbutton(settings, text="Show all audio devices (including duplicates / virtual inputs)",
+                        variable=self.show_all_mics, command=self.refresh_mics).pack(anchor="w", pady=(4, 0))
         controls = ttk.Frame(frame)
         controls.pack(fill="x", pady=(16, 10))
         self.start_button = ttk.Button(controls, text="Start listening", command=self.start)
@@ -211,15 +215,52 @@ class App:
     def refresh_mics(self):
         try:
             import sounddevice as sd
+            raw = sd.query_devices()
+            apis = sd.query_hostapis()
+            saved = self.devices.get(self.device.get())
+            persisted = self.settings.get("KITSUFLOW_MIC_DEVICE", "")
             devices = {"System default": None}
-            for i, d in enumerate(sd.query_devices()):
-                if d["max_input_channels"] > 0:
-                    devices[f"{i}: {d['name']}"] = i
+            candidates = []
+            for index, item in enumerate(raw):
+                if item["max_input_channels"] <= 0:
+                    continue
+                name = str(item["name"]).strip()
+                api = str(apis[item["hostapi"]]["name"])
+                if not name:
+                    continue
+                # Windows lists each input through MME, DirectSound, WASAPI and WDM-KS.
+                # Only one copy per microphone is needed in the normal view.
+                name_clean = re.sub(r"\s*\((?:[0-9]+-\s*)?\w*(?:input|output)\w*\)\s*$", "", name, flags=re.I).strip()
+                key = re.sub(r"[^a-z0-9]+", "", name_clean.lower())
+                duplicate = any(x in name.lower() for x in (
+                    "microsoft sound mapper", "primary sound capture driver", "stereo mix",
+                    "what u hear", "wave out mix", "loopback", "monitor of "))
+                # MME often handles 16 kHz conversion on older Windows sound drivers.
+                priority = (0 if "MME" in api else 1 if "WASAPI" in api else
+                            2 if "DirectSound" in api else 3)
+                candidates.append((priority, duplicate, index, name, api, key))
+            candidates.sort(key=lambda x: (x[1], x[0], x[2]))
+            seen = set()
+            for _, hidden, index, name, api, key in candidates:
+                if not self.show_all_mics.get():
+                    if hidden or key in seen:
+                        continue
+                seen.add(key)
+                label = f"{name} ({api})" if self.show_all_mics.get() else name
+                if label in devices:
+                    label = f"{label} [{index}]"
+                devices[label] = index
             self.devices = devices
             self.micbox["values"] = list(devices)
-            choice = self.settings.get("KITSUFLOW_MIC_DEVICE", "")
-            selected = next((name for name, idx in devices.items() if str(idx) == choice and idx is not None), "System default")
-            if self.device.get() not in devices: self.device.set(selected)
+            target = saved if saved is not None else (
+                int(persisted) if persisted.isdigit() else None)
+            chosen = next((label for label, index in devices.items()
+                           if index is not None and index == target), None)
+            if chosen is None and target is not None:
+                self.push("Previously selected microphone is hidden/unavailable; choose a visible device.")
+            self.device.set(chosen or "System default")
+            self.push(f"Microphones: {len(devices)-1} shown" +
+                      (" (all recording inputs)" if self.show_all_mics.get() else " (duplicates hidden)"))
         except Exception as exc:
             self.push("Microphone listing failed: " + str(exc))
 

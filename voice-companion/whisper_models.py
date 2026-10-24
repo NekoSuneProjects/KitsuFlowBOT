@@ -51,6 +51,11 @@ def ensure_whisper_model(root,model,progress=None):
     if model not in REPOS: raise ValueError("Unsupported Whisper model")
     folder=cache_dir(root,model)
     from huggingface_hub import snapshot_download
+    from huggingface_hub.utils import disable_progress_bars
+    # PyInstaller --windowed has no stderr; tqdm's default bar can raise:
+    # AttributeError: 'NoneType' object has no attribute 'write'.
+    # The desktop window provides its own progress/status messages.
+    disable_progress_bars()
     if progress: progress(5,"Checking/downloading Whisper "+model+"...")
     snapshot_download(repo_id=REPOS[model],local_dir=str(folder),allow_patterns=[
         "config.json","model.bin","tokenizer.json","vocabulary.json","preprocessor_config.json"
