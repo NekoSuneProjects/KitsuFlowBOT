@@ -236,7 +236,7 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   const configuredId=String(process.env.KICK_APP_BOT_CHANNEL_ID||'').trim();
   const linked=db.prepare("SELECT external_id FROM platform_oauth WHERE channel=? AND platform='kick'").get(channel);
   const count=db.prepare("SELECT COUNT(DISTINCT external_id) AS total FROM platform_oauth WHERE platform='kick'").get().total;
-  if(!configuredId||!/^\\d+$/.test(configuredId))throw Error('Kick app bot routing disabled: set KICK_APP_BOT_CHANNEL_ID to the authorised Kick broadcaster ID');
+  if(!configuredId||!/^[0-9]+$/.test(configuredId))throw Error('Kick app bot routing disabled: set KICK_APP_BOT_CHANNEL_ID to the authorised Kick broadcaster ID');
   if(count!==1||String(linked.external_id)!==configuredId)throw Error('Kick app bot routing refused: this application token is restricted to a single pinned Kick channel, and the selected channel is not its target');
   const content=String(text||'').trim().slice(0,500);
   if(!content)throw Error('Empty Kick bot message');
