@@ -82,6 +82,14 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
   res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' https://static-cdn.jtvnw.net https://cdn.betterttv.net https://cdn.frankerfacez.com https://*.7tv.app https://cdn.7tv.app https://*.7tv.io; object-src 'none'; frame-ancestors *"});
   res.sendFile('multichat.html',{root:'public'});
  });
+ // OBS Custom Browser Dock: authenticated editing only. Overlay bearer URLs remain read-only.
+ app.get('/obs/stream-control',withUser,access.channelOnly('owner'),(req,res)=>{
+  res.set({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
+  res.sendFile('obs-stream-control.html',{root:'public'});
+ });
+ app.get('/api/obs/stream-info',withUser,access.channelOnly('owner'),(req,res)=>{
+  res.set('Cache-Control','no-store').json({platforms:db.prepare('SELECT platform,title,game,updated FROM stream_overlay_metadata WHERE channel=? ORDER BY platform').all(req.channelId)});
+ });
  app.get('/obs/game/:key',source,(req,res)=>{
   res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});
   res.sendFile('obs-game.html',{root:'public'});
