@@ -223,6 +223,11 @@ class App:
         self.root.bind_all("<MouseWheel>", self.scroll_settings, add="+")
         self.root.bind_all("<Button-4>", self.scroll_settings, add="+")
         self.root.bind_all("<Button-5>", self.scroll_settings, add="+")
+        # ttk Combobox has a class mouse-wheel binding that cycles selections.
+        # Suppress that default action while routing the wheel to the page.
+        self.root.bind_class("TCombobox", "<MouseWheel>", self.scroll_settings)
+        self.root.bind_class("TCombobox", "<Button-4>", self.scroll_settings)
+        self.root.bind_class("TCombobox", "<Button-5>", self.scroll_settings)
         scrollbar.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
         content = ttk.Frame(canvas, style="App.TFrame", padding=(0, 0, 12, 10))
