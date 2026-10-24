@@ -110,7 +110,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          TAG="\${{ steps.version.outputs.tag }}"
+          TAG="${{ steps.version.outputs.tag }}"
           PRERELEASE_FLAG=()
           if [[ "$TAG" == *-*.*-* ]]; then PRERELEASE_FLAG=(--prerelease); fi
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
