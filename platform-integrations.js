@@ -66,13 +66,53 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  // Restore chat connectivity after process restarts as well as after OAuth callbacks.
  const restore=()=>{for(const item of db.prepare("SELECT channel,display_name FROM platform_oauth WHERE platform='vpzone'").all())vpzoneConnect(item.channel,item.display_name)};
  restore();
+ db.exec("CREATE TABLE IF NOT EXISTS kick_chat_status(channel TEXT PRIMARY KEY,status TEXT NOT NULL DEFAULT 'pending',detail TEXT NOT NULL DEFAULT '',updated_at INTEGER NOT NULL DEFAULT 0)");
+ const commandCooldowns=new Map();
+ async function kickIncomingCommand(channel,event){
+  const body=String(event.content||'').trim(),sender=event.sender||{};
+  const parts=body.split(/\\s+/),name=parts[0]?.toLowerCase();
+  if(!name?.startsWith('!'))return;
+  const key=name.slice(1);
+  if(!/^[a-z0-9_]{1,32}$/.test(key))return;
+  const cmd=db.prepare('SELECT name,response,cooldown,level FROM commands WHERE channel=? AND name=?').get(channel,key);
+  if(!cmd||cmd.level!=='everyone')return;
+  const ck=channel+':kick:'+key,now=Date.now();if((commandCooldowns.get(ck)||0)>now)return;
+  commandCooldowns.set(ck,now+Math.max(0,Number(cmd.cooldown)||0)*1000);
+  const username=clean(sender.username||'viewer');
+  const reply=String(cmd.response).replaceAll('{user}',username).replaceAll('{channel}',db.prepare('SELECT login FROM channels WHERE id=?').get(channel)?.login||'').replaceAll('{args}',parts.slice(1).join(' ')).slice(0,500);
+  await kickBotSay(channel,reply);
+  log(channel,'kick-command',key);
+ }
+ async function subscribeKickChat(channel){
+  const account=db.prepare("SELECT external_id,scopes FROM platform_oauth WHERE platform='kick' AND channel=?").get(channel);
+  if(!account)return;
+  const status=(state,detail)=>db.prepare('INSERT INTO kick_chat_status(channel,status,detail,updated_at) VALUES(?,?,?,?) ON CONFLICT(channel) DO UPDATE SET status=excluded.status,detail=excluded.detail,updated_at=excluded.updated_at').run(channel,state,String(detail).slice(0,240),Date.now());
+  if(process.env.KICK_WEBHOOK_ENABLED==='false')return status('disabled','KICK_WEBHOOK_ENABLED=false');
+  if(!String(account.scopes).split(/\\s+/).includes('events:subscribe'))return status('missing_scope','Reconnect Kick with events:subscribe');
+  try{
+   const token=await refresh(channel,'kick');
+   const url='https://api.kick.com/public/v1/events/subscriptions';
+   const headers={Authorization:'Bearer '+token,'Content-Type':'application/json'};
+   const response=await fetch(url,{headers,signal:AbortSignal.timeout(12000)});
+   if(!response.ok)throw Error('List subscriptions HTTP '+response.status);
+   const data=await response.json();
+   const rows=Array.isArray(data.data)?data.data:Array.isArray(data.data?.subscriptions)?data.data.subscriptions:[];
+   const existing=rows.some(x=>x.event==='chat.message.sent'||x.name==='chat.message.sent'||x.event?.name==='chat.message.sent');
+   if(existing)return status('subscribed','Existing chat.message.sent subscription');
+   const created=await fetch(url,{method:'POST',headers,body:JSON.stringify({broadcaster_user_id:Number(account.external_id),method:'webhook',events:[{name:'chat.message.sent',version:1}]}),signal:AbortSignal.timeout(12000)});
+   if(!created.ok)throw Error('Create chat subscription HTTP '+created.status+' '+(await created.text()).slice(0,150));
+   status('subscribed','chat.message.sent subscription requested');
+   log(channel,'kick-chat-subscription','registered');
+  }catch(err){status('error',err.message);log(channel,'kick-subscription-error',err.message)}
+ }
  const conf=type=>{const p=providers[type];if(!p)return null;return {...p,clientId:process.env[p.client],clientSecret:process.env[p.secret]}};
  const safe=fn=>(req,res)=>Promise.resolve(fn(req,res)).catch(e=>{console.error('platform:',e.message);res.status(400).json({error:e.message})});
  const authUser=(req,res,next)=>req.session.uid?next():res.status(401).json({error:'Sign in with Twitch first'});
  const verifyChannel=(req,res,next)=>{const channel=access.channelFor(req);if(!channel||!access.can(req.session.uid,channel,'owner'))return res.status(403).json({error:'Channel owner required'});req.channelId=channel;next()};
+ app.post('/api/platforms/kick/subscribe',withUser,access.channelOnly('owner'),csrf,safe(async(req,res)=>{await subscribeKickChat(req.channelId);res.json(db.prepare('SELECT status,detail,updated_at FROM kick_chat_status WHERE channel=?').get(req.channelId))}));
  app.get('/api/platforms/runtime',withUser,access.channelOnly('editor'),(req,res)=>{
  const sock=vpSockets.get(req.channelId);
- res.json({vpzone:{linked:Boolean(db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='vpzone'").get(req.channelId)),chat_connected:Boolean(sock?.ws?.readyState===WebSocket.OPEN)},kick:{linked:Boolean(db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='kick'").get(req.channelId)),webhook_enabled:process.env.KICK_WEBHOOK_ENABLED!=='false',subscription_active:false,detail:'Kick event subscription registration not configured'}});
+ res.json({vpzone:{linked:Boolean(db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='vpzone'").get(req.channelId)),chat_connected:Boolean(sock?.ws?.readyState===WebSocket.OPEN)},kick:{linked:Boolean(db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='kick'").get(req.channelId)),webhook_enabled:process.env.KICK_WEBHOOK_ENABLED!=='false',subscription_active:db.prepare('SELECT status FROM kick_chat_status WHERE channel=?').get(req.channelId)?.status==='subscribed',detail:db.prepare('SELECT detail FROM kick_chat_status WHERE channel=?').get(req.channelId)?.detail||'Subscription not registered'}});
  });
  app.get('/api/platforms',withUser,access.channelOnly('editor'),(req,res)=>{
  const rows=db.prepare('SELECT platform,external_id,display_name,expires_at,scopes FROM platform_oauth WHERE channel=?').all(req.channelId);
@@ -153,6 +193,7 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  db.prepare('INSERT INTO platform_oauth(channel,platform,external_id,display_name,access_token,refresh_token,expires_at,scopes) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(channel,platform) DO UPDATE SET external_id=excluded.external_id,display_name=excluded.display_name,access_token=excluded.access_token,refresh_token=excluded.refresh_token,expires_at=excluded.expires_at,scopes=excluded.scopes').run(o.channel,type,identity.id,identity.display,enc(token.access_token),enc(token.refresh_token),Date.now()+Number(token.expires_in||3600)*1000,String(token.scope||p.scope));
  db.prepare('INSERT OR REPLACE INTO provider_accounts(id,channel,platform,external_id,display_name,status) VALUES(?,?,?,?,?,?)').run(o.channel+':'+type,o.channel,type,identity.id,identity.display,'connected');
  log(o.channel,'provider-linked',type+' '+identity.display);
+ if(type==='kick')void subscribeKickChat(o.channel);
  if(type==='vpzone')vpzoneConnect(o.channel,identity.display);
  res.redirect('/dashboard?connected='+encodeURIComponent(type));
  }));
@@ -300,10 +341,17 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  if(kind==='chat.message.sent' || kind==='chat.message.created'){
   const body=String(event.content||event.message?.content||'').slice(0,350);
   const bot=db.prepare('SELECT external_id FROM platform_bot_accounts WHERE platform=?').get('kick');
-  if(body)void relay.relay(linked.channel,'kick',event.sender?.username||actor,body,{isBot:Boolean(bot&&String(event.sender?.user_id||event.sender?.id)===bot.external_id)}).catch(err=>log(linked.channel,'relay-error',err.message));
+  if(body){
+   const isBot=Boolean((bot&&String(event.sender?.user_id||event.sender?.id)===bot.external_id)||event.sender?.is_bot===true||(process.env.KICK_BOT_USERNAME&&String(event.sender?.username||'').toLowerCase()===process.env.KICK_BOT_USERNAME.toLowerCase()));
+   if(!isBot&&event.sender?.is_anonymous!==true){
+    void relay.relay(linked.channel,'kick',event.sender?.username||actor,body,{isBot:false}).catch(err=>log(linked.channel,'relay-error',err.message));
+    void kickIncomingCommand(linked.channel,event).catch(err=>log(linked.channel,'kick-command-error',err.message));
+   }
+  }
  }
  }
  db.prepare('DELETE FROM platform_delivery WHERE created_at<?').run(Date.now()-86400000);
  res.sendStatus(204);
  }));
+ setImmediate(()=>{for(const row of db.prepare("SELECT channel FROM platform_oauth WHERE platform='kick'").all())void subscribeKickChat(row.channel)});
 }
