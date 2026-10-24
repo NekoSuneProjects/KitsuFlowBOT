@@ -29,4 +29,8 @@ Whisper models download to `model/whisper/<selected-model>` relative to the appl
 
 ## Automatic desktop release versioning
 
-Every successful Windows and Linux build on the `desktopapp` branch publishes a GitHub Release automatically. The release workflow reads existing published `desktopapp-vMAJOR.MINOR.PATCH` versions, chooses the highest semantic version and increments **PATCH** (for example `1.0.2 → 1.0.3 → 1.0.4`). The number in `voice-companion/VERSION` is no longer used to select the release tag. Each downloadable archive includes a generated `VERSION` file matching its published release. GitHub Actions skips releases for older commits when a newer desktopapp commit exists, and won't publish if either platform build fails. Re-running the workflow with `workflow_dispatch` on desktopapp also produces the next patch release, once both platform builds succeed.
+Every successful Windows and Linux build on the `main` branch publishes a GitHub Release automatically. The release workflow reads existing published `desktopapp-vMAJOR.MINOR.PATCH` versions, chooses the highest semantic version and increments **PATCH** (for example `1.0.2 → 1.0.3 → 1.0.4`). The number in `voice-companion/VERSION` is no longer used to select the release tag. Each downloadable archive includes a generated `VERSION` file matching its published release. GitHub Actions skips releases for older commits when a newer main commit exists, and won't publish if either platform build fails. Re-running the workflow with `workflow_dispatch` on main also produces the next patch release, once both platform builds succeed.
+
+### Build branch and artifact storage
+
+The desktop Windows/Linux workflow runs on changes to `voice-companion/**` or its workflow on `main` only (or manual dispatch on `main`). Temporary GitHub Actions build artifacts expire after **1 day**. Versioned downloadable GitHub Release assets are retained independently of Actions artifact expiry.
