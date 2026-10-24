@@ -34,6 +34,7 @@ async function activity(){
  const c=card('Activity feed','Follows, subscriptions, gifted subscriptions, raids, Twitch cheers, Kick Kicks and supported VPZone engagement events. Internal bot logs are shown in Admin Panel.');
  if(!events.length)c.append(e('div','No stream engagement events received yet. Events appear once the platform subscriptions are connected.','empty'));
  else c.append(table(['When','Platform','Event','Viewer','Details'],events.map(x=>[x.created,x.platform.toUpperCase(),x.event_type.replaceAll('_',' '),x.actor||'—',x.detail||'—'])));
+ c.dataset.liveActivity='true';
  return c;
 }
 function reports(){return grid('stats',stat('Total members',creator.stats.members,'♙','Chat-based activity'),stat('Loyalty points',creator.stats.points,'✧','Current issued balances'),stat('Redemptions',creator.stats.redemptions,'▣','Store requests'),stat('Queue',creator.queue.length,'☷','Waiting viewers'))}
@@ -163,7 +164,7 @@ async function connections(){
  multiCard.append(speech.node,actions(btn('Save TTS option',async()=>{await api('/api/multichat/settings','POST',{tts_enabled:speech.value()});notify('Multi-chat TTS saved')},'primary'),btn('Generate / rotate OBS URL',async()=>{
   const x=await api('/api/multichat/source','POST',{});
   const url=location.origin+x.url;
-  sourceOut.replaceChildren(e('span','Keep this URL private: '),link(url,url));
+  sourceOut.replaceChildren(e('span','Keep these OBS browser URLs private:'),h('div','list-row',e('span','Multi-chat'),link(url,url)),h('div','list-row',e('span','Game & title'),link(location.origin+x.game_url,location.origin+x.game_url)),h('div','list-row',e('span','Activity Feed'),link(location.origin+x.activity_url,location.origin+x.activity_url)));
   notify('OBS browser URL generated; copy it now');
  })),sourceOut);
  c.append(multiCard);
@@ -231,6 +232,27 @@ async function adminLogs(){return await api('/api/admin/logs').catch(()=>[])}
 
 const views={overview,activity,reports,commands,timers,moderation,voice,loyalty,campaigns,store,queue,quotes,overlays,connections,channel,team,admin};
 async function show(id){if((id==='admin'&&!state.isOperator)||(ownerPages.has(id)&&access.role!=='owner'))id='overview';page=id;$('#crumb').textContent=groups.flatMap(x=>x[1]).find(x=>x[0]===id)?.[2]||id;$('#page-title').textContent=$('#crumb').textContent;$('#page-desc').textContent=descriptions[id];$('#kicker').textContent=id==='admin'?'PLATFORM ADMINISTRATION':'CREATOR CONTROL CENTER';document.querySelectorAll('.nav-link').forEach(x=>x.classList.toggle('active',x.dataset.page===id));const view=$('#view');view.replaceChildren(e('p','Loading...','muted'));try{const result=await views[id]();view.replaceChildren(result)}catch(ex){view.replaceChildren(e('div','Failed to load page: '+ex.message,'empty'))}}
+// Live dashboard activity refresh while the Activity Feed page is displayed.
+let lastActivitySignature='';
+async function refreshActivity(){
+ try{
+  if(page==='activity'){
+   const events=await api('/api/stream-activity');
+   const signature=JSON.stringify(events);
+   if(signature!==lastActivitySignature){
+    lastActivitySignature=signature;
+    const container=document.querySelector('#view .card');
+    if(container){
+     const old=container.querySelector('table,.empty');
+     const replacement=events.length?table(['When','Platform','Event','Viewer','Details'],events.map(x=>[x.created,x.platform.toUpperCase(),x.event_type.replaceAll('_',' '),x.actor||'—',x.detail||'—'])):e('div','No stream engagement events received yet.','empty');
+     if(old)old.replaceWith(replacement);else container.append(replacement);
+    }
+   }
+  }
+ }catch(err){console.warn('Activity refresh:',err.message)}
+ setTimeout(refreshActivity,1800);
+}
+setTimeout(refreshActivity,1800);
 fetch('/api/build-info',{cache:'no-store'}).then(r=>r.json()).then(info=>{const el=$('#studio-version');if(el)el.textContent='Studio · '+String(info.version).slice(0,12)}).catch(()=>{});
 load();
 })();
