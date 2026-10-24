@@ -159,17 +159,49 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   appToken={value:token.access_token,expires:Date.now()+Number(token.expires_in||3600)*1000};return appToken.value;
  }
  async function kickBotSay(channel,text){
-  const linked=db.prepare('SELECT 1 FROM platform_oauth WHERE channel=? AND platform=?').get(channel,'kick');
-  if(!linked)throw Error('Connect Kick before using chat');
+  const linked=db.prepare("SELECT external_id,scopes FROM platform_oauth WHERE channel=? AND platform='kick'").get(channel);
+  if(!linked)throw Error('Connect your Kick broadcaster account before sending chat');
   const content=String(text||'').trim().slice(0,500);if(!content)throw Error('Empty chat message');
-  const token=await kickAppToken();
-  const response=await fetch('https://api.kick.com/public/v1/chat',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({content,type:'bot'}),signal:AbortSignal.timeout(12000)});
-  if(!response.ok)throw Error('Kick bot chat failed: '+response.status);
-  log(channel,'kick-bot-message',content.slice(0,80));return {ok:true};
+  const endpoint='https://api.kick.com/public/v1/chat';
+  const post=async(token,body)=>{
+   const response=await fetch(endpoint,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(12000)});
+   return {ok:response.ok,status:response.status,body:response.ok?'':(await response.text()).slice(0,300)};
+  };
+  // Use Kick app bot identity first, as StreamBOT/backendlive does.
+  let initial;
+  try{
+   initial=await post(await kickAppToken(),{content,type:'bot'});
+   if(initial.ok){log(channel,'kick-bot-message','app');return {ok:true,mode:'app-bot'}}
+   if(initial.status!==401)throw Error('Kick bot chat failed: '+initial.status+' '+initial.body);
+  }catch(err){
+   // Do not silently downgrade network errors or other authorization failures.
+   if(!initial||initial.status!==401)throw err;
+  }
+  appToken=null; // invalidate a possibly revoked/stale app credential
+  log(channel,'kick-chat-auth','App bot token rejected (401); attempting linked broadcaster OAuth');
+  if(!String(linked.scopes||'').split(/\\s+/).includes('chat:write'))throw Error('Kick app token rejected (401). Reconnect broadcaster with chat:write scope.');
+  const broadcasterId=Number(linked.external_id);
+  if(!Number.isSafeInteger(broadcasterId)||broadcasterId<=0)throw Error('Kick broadcaster ID invalid');
+  let userToken=await refresh(channel,'kick');
+  const payload={content,type:'user',broadcaster_user_id:broadcasterId};
+  let fallback=await post(userToken,payload);
+  if(fallback.status===401){
+   const row=db.prepare("SELECT refresh_token FROM platform_oauth WHERE channel=? AND platform='kick'").get(channel);
+   const p=conf('kick');
+   const res=await fetch(p.token,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'refresh_token',refresh_token:dec(row.refresh_token),client_id:p.clientId,client_secret:p.clientSecret}),signal:AbortSignal.timeout(12000)});
+   if(!res.ok)throw Error('Kick broadcaster token refresh failed: '+res.status+'; reconnect Kick account');
+   const next=await res.json();
+   if(!next.access_token)throw Error('Kick token refresh missing access token');
+   db.prepare("UPDATE platform_oauth SET access_token=?,refresh_token=?,expires_at=? WHERE channel=? AND platform='kick'").run(enc(next.access_token),enc(next.refresh_token||dec(row.refresh_token)),Date.now()+Number(next.expires_in||3600)*1000,channel);
+   fallback=await post(next.access_token,payload);
+  }
+  if(!fallback.ok)throw Error('Kick bot app token rejected (401); broadcaster fallback failed: '+fallback.status+' '+fallback.body);
+  log(channel,'kick-bot-message','broadcaster-fallback');
+  return {ok:true,mode:'broadcaster-fallback'};
  }
  relay.register('kick',kickBotSay);
  app.post('/api/platforms/kick/chat',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{
-  await kickBotSay(req.channelId,req.body.message);res.json({ok:true});
+  const result=await kickBotSay(req.channelId,req.body.message);res.json(result);
  }));
  app.get('/api/platforms/linked',withUser,access.channelOnly('editor'),(req,res)=>{
   res.json({linked:db.prepare('SELECT platform,external_id,display_name FROM platform_oauth WHERE channel=?').all(req.channelId)});
