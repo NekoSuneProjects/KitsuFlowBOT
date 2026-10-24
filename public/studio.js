@@ -34,6 +34,7 @@ async function activity(){
  const c=card('Activity feed','Follows, subscriptions, gifted subscriptions, raids, Twitch cheers, Kick Kicks and supported VPZone engagement events. Internal bot logs are shown in Admin Panel.');
  if(!events.length)c.append(e('div','No stream engagement events received yet. Events appear once the platform subscriptions are connected.','empty'));
  else c.append(table(['When','Platform','Event','Viewer','Details'],events.map(x=>[x.created,x.platform.toUpperCase(),x.event_type.replaceAll('_',' '),x.actor||'—',x.detail||'—'])));
+ c.dataset.liveActivity='true';
  return c;
 }
 function reports(){return grid('stats',stat('Total members',creator.stats.members,'♙','Chat-based activity'),stat('Loyalty points',creator.stats.points,'✧','Current issued balances'),stat('Redemptions',creator.stats.redemptions,'▣','Store requests'),stat('Queue',creator.queue.length,'☷','Waiting viewers'))}
@@ -110,6 +111,66 @@ async function connections(){
  c.append(h('div','list-row',e('span','Twitch broadcaster'),e('strong','@'+state.channel.login)),h('div','list-row',e('span','Shared bot'),e('strong',state.bot?'@'+state.bot.login:'Not connected')));
  const enabled=input('Enable bot for my channel',!!state.channel.enabled,'checkbox'),links=input('Timeout unapproved links',!!state.channel.links,'checkbox');
  c.append(grid('cols2',enabled.node,links.node),actions(btn('Save Twitch settings',async()=>{await api('/api/settings','POST',{enabled:enabled.value(),links:links.value()});await reloadView()},'primary')));
+ const metadata=card('Set title and game on linked platforms','Search each platform native game catalog, select its own category, then apply the same stream title to all selected platforms.');
+ const titleInput=input('Stream title','');
+ const gameInput=input('Search game / category (example: AION 2)','');
+ const lookup=e('div','','stack');
+ const output=e('div','','stack');
+ const chosen={},checkboxes={};
+ for(const platform of ['twitch','kick','vpzone'])checkboxes[platform]=input('Update '+platform.toUpperCase(),true,'checkbox');
+ metadata.append(grid('cols2',titleInput.node,gameInput.node),actions(...Object.values(checkboxes).map(x=>x.node)),actions(btn('Find platform games',async()=>{
+  const data=await api('/api/stream-metadata/categories?q='+encodeURIComponent(gameInput.value()));
+  lookup.replaceChildren();
+  for(const platform of ['twitch','kick','vpzone']){
+   const results=data[platform]||[];
+   const select=input(platform.toUpperCase()+' category', '', 'select');
+   select.el.append(new Option('Select category',''));
+   for(const cat of results){const opt=new Option(cat.name,cat.id);select.el.append(opt)}
+   if(results.length===1)select.el.value=results[0].id;
+   select.el.onchange=()=>{chosen[platform]=results.find(x=>x.id===select.el.value)||null};
+   if(results.length===1)chosen[platform]=results[0];
+   lookup.append(select.node);
+   if(data[platform+'_error'])lookup.append(e('p',platform+': '+data[platform+'_error'],'description'));
+   else if(!results.length)lookup.append(e('p',platform+': no matching categories returned','description'));
+  }
+ },'primary'),btn('Update selected platforms',async()=>{
+  const platforms=Object.entries(checkboxes).filter(([,v])=>v.value()).map(([k])=>k);
+  if(platforms.some(p=>!chosen[p])){notify('Choose a native category for every selected platform');return}
+  const x=await api('/api/stream-metadata/sync','POST',{title:titleInput.value(),platforms,categories:chosen});
+  output.replaceChildren();
+  for(const item of x.results)output.append(e('div',item.platform.toUpperCase()+': '+item.status+(item.error?' — '+item.error:' — '+item.category),'description'));
+ },'primary')),lookup,output);
+ c.append(metadata);
+ const aiCard=card('AI stream title helper','Use your own OpenAI-compatible chat-completions URL and model. Suggestions only fill the text box; nothing is published without clicking Update selected platforms.');
+ const aiState=await api('/api/creator-ai').catch(()=>({endpoint:'',model:'',hasKey:false}));
+ const endpoint=input('Chat completions URL (HTTPS)',aiState.endpoint||'');
+ const model=input('Model ID',aiState.model||'');
+ const apiKey=input('API key (leave empty to keep saved key)','');
+ apiKey.el.type='password';
+ const aiContext=input('Title idea or vibe','Chill gameplay, welcoming to newcomers');
+ aiCard.append(grid('cols2',endpoint.node,model.node,apiKey.node,aiContext.node),actions(btn('Save AI provider',async()=>{
+  await api('/api/creator-ai','POST',{endpoint:endpoint.value(),model:model.value(),apiKey:apiKey.value()});
+  notify('AI provider saved securely');
+ },'primary'),btn('Suggest a stream title',async()=>{
+  const x=await api('/api/creator-ai/suggest','POST',{game:gameInput.value(),context:aiContext.value()});
+  titleInput.el.value=x.title;
+  notify('Suggested title filled in. Review before publishing.');
+ })));
+ c.append(aiCard);
+ const multiCard=card('Multi-chat OBS browser source','Read combined Twitch, Kick and VPZone chat in OBS without cross-posting. The private source URL acts as a secret, and browser speech synthesis can read messages aloud.');
+ const multi=await api('/api/multichat/settings').catch(()=>({configured:false,tts_enabled:false}));
+ const speech=input('Enable browser TTS',multi.tts_enabled,'checkbox');
+ const ttsRate=input('TTS speaking rate (0.5 - 2)',multi.tts_rate??1.08,'number');
+ const ttsVolume=input('TTS volume (0 - 1)',multi.tts_volume??1,'number');
+ const sourceOut=e('div',multi.configured?'Source configured. Regenerate to get a replacement URL.':'No browser source URL generated yet.','description');
+ multiCard.append(grid('cols2',speech.node,ttsRate.node,ttsVolume.node),actions(btn('Save TTS option',async()=>{await api('/api/multichat/settings','POST',{tts_enabled:speech.value(),tts_rate:ttsRate.value(),tts_volume:ttsVolume.value()});notify('Multi-chat TTS saved')},'primary'),btn('Generate / rotate OBS URL',async()=>{
+  const x=await api('/api/multichat/source','POST',{});
+  const url=location.origin+x.url;
+  sourceOut.replaceChildren(e('span','Keep these OBS browser URLs private:'),h('div','list-row',e('span','Multi-chat'),link(url,url)),h('div','list-row',e('span','Game & title'),link(location.origin+x.game_url,location.origin+x.game_url)),h('div','list-row',e('span','Activity Feed'),link(location.origin+x.activity_url,location.origin+x.activity_url)));
+  notify('OBS browser URL generated; copy it now');
+ })),sourceOut);
+ c.append(multiCard);
+
  const runtime=await api('/api/platforms/runtime').catch(()=>null);
  const providerCard=card('Linked streaming channels','Kick and VPZone attach to your Twitch-based profile. You stay signed in with Twitch, and manage them from one dashboard. Connected platforms share creator settings and commands where their chat integrations support them.');
  let result;try{result=await api('/api/platforms')}catch(err){providerCard.append(e('div','Could not load Kick/VPZone connections: '+err.message,'empty'));result={platforms:[]}}
@@ -173,6 +234,27 @@ async function adminLogs(){return await api('/api/admin/logs').catch(()=>[])}
 
 const views={overview,activity,reports,commands,timers,moderation,voice,loyalty,campaigns,store,queue,quotes,overlays,connections,channel,team,admin};
 async function show(id){if((id==='admin'&&!state.isOperator)||(ownerPages.has(id)&&access.role!=='owner'))id='overview';page=id;$('#crumb').textContent=groups.flatMap(x=>x[1]).find(x=>x[0]===id)?.[2]||id;$('#page-title').textContent=$('#crumb').textContent;$('#page-desc').textContent=descriptions[id];$('#kicker').textContent=id==='admin'?'PLATFORM ADMINISTRATION':'CREATOR CONTROL CENTER';document.querySelectorAll('.nav-link').forEach(x=>x.classList.toggle('active',x.dataset.page===id));const view=$('#view');view.replaceChildren(e('p','Loading...','muted'));try{const result=await views[id]();view.replaceChildren(result)}catch(ex){view.replaceChildren(e('div','Failed to load page: '+ex.message,'empty'))}}
+// Live dashboard activity refresh while the Activity Feed page is displayed.
+let lastActivitySignature='';
+async function refreshActivity(){
+ try{
+  if(page==='activity'){
+   const events=await api('/api/stream-activity');
+   const signature=JSON.stringify(events);
+   if(signature!==lastActivitySignature){
+    lastActivitySignature=signature;
+    const container=document.querySelector('#view .card');
+    if(container){
+     const old=container.querySelector('table,.empty');
+     const replacement=events.length?table(['When','Platform','Event','Viewer','Details'],events.map(x=>[x.created,x.platform.toUpperCase(),x.event_type.replaceAll('_',' '),x.actor||'—',x.detail||'—'])):e('div','No stream engagement events received yet.','empty');
+     if(old)old.replaceWith(replacement);else container.append(replacement);
+    }
+   }
+  }
+ }catch(err){console.warn('Activity refresh:',err.message)}
+ setTimeout(refreshActivity,1800);
+}
+setTimeout(refreshActivity,1800);
 fetch('/api/build-info',{cache:'no-store'}).then(r=>r.json()).then(info=>{const el=$('#studio-version');if(el)el.textContent='Studio · '+String(info.version).slice(0,12)}).catch(()=>{});
 load();
 })();

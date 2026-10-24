@@ -14,6 +14,7 @@ import {installVoiceCompanion} from './voice-companion.js';
 import {installAccess} from './access.js';
 import {installPlatforms} from './platform-integrations.js';
 import {installRelay} from './chat-relay.js';
+import {installCreatorTools} from './creator-tools.js';
 
 const PORT=Number(process.env.PORT||3000), BASE=(process.env.BASE_URL||'http://localhost:3000').replace(/\/$/,'');
 const CID=process.env.TWITCH_CLIENT_ID, SECRET=process.env.TWITCH_CLIENT_SECRET;
@@ -133,7 +134,8 @@ app.post('/logout',csrf,(req,res)=>req.session.destroy(()=>res.json({ok:true})))
 const access=installAccess({app,db,withUser,csrf,safe,log});
 const streamActivity=installStreamActivity({app,db,withUser,access});
 app.get('/api/admin/logs',withUser,(req,res)=>{if(!isOperator(req.session.uid))return res.status(403).json({error:'Operator access required'});res.set('Cache-Control','no-store').json(db.prepare('SELECT l.channel,c.login,l.event,l.detail,l.created FROM logs l LEFT JOIN channels c ON c.id=l.channel ORDER BY l.id DESC LIMIT 250').all())});
-const relay=installRelay({app,db,withUser,csrf,access,isOperator,log});
+const creatorTools=installCreatorTools({app,db,withUser,csrf,access,enc,dec});
+const relay=installRelay({app,db,withUser,csrf,access,isOperator,log,observe:creatorTools.observe});
 relay.register('twitch',async(channel,text)=>say(channel,text));
 // Existing studio endpoints resolve the selected channel, not the login identity.
 app.use(['/api/state','/api/settings','/api/commands','/api/clip','/api/moderate','/api/engagement','/api/creator'],withUser,(req,res,next)=>{const channel=access.channelFor(req);if(!channel)return res.status(403).json({error:'No channel access'});if(req.path.startsWith('/api/settings')&&!access.can(req.session.uid,channel,'owner'))return res.status(403).json({error:'Owner access required'});if(req.method!=='GET'){const required=req.path.startsWith('/api/moderate')||req.path.startsWith('/api/settings')||req.path.startsWith('/api/clip')||req.path.startsWith('/api/creator/queue')||req.path.startsWith('/api/creator/campaign/draw')||req.path.startsWith('/api/creator/redeem')?'bot_supervisor':'editor';if(!access.can(req.session.uid,channel,required))return res.status(403).json({error:'Insufficient channel permissions'});}req.channelId=channel;next()});
@@ -201,7 +203,11 @@ const engagement=installEngagement({app,db,withUser,csrf,safe,say,moderate,log,a
 const creator=installCreator({app,db,withUser,csrf,safe,log,say,access});
 installVoice({app,db,withUser,csrf,access,api,clip,log,say});
 installVoiceCompanion({app,db,withUser,csrf,access,api,clip,log});
-installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,relay,streamActivity});
+const platformRuntime=installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,relay,streamActivity,twitchApi:api});
+creatorTools.setProviderStatus(channel=>{
+ const bot=sockets.get('bot');
+ return {twitch:{status:!botId()?'pending':bot?.readyState===WebSocket.OPEN?'connected':bot?.readyState===WebSocket.CONNECTING?'pending':'failed',detail:!botId()?'Shared bot not connected':'Twitch EventSub session'},...platformRuntime.chatStatus(channel)};
+});
 app.get('/dashboard',(req,res)=>{res.set('Cache-Control','no-store, max-age=0');return req.session.uid?res.sendFile(path.resolve('public/dashboard.html')):res.redirect('/login')});
 app.get('/login',(req,res)=>req.session.uid?res.redirect('/dashboard'):res.sendFile(path.resolve('public/login.html')));
 app.get('/api/build-info',(req,res)=>res.set('Cache-Control','no-store').json({version:process.env.GITHUB_SHA||process.env.APP_VERSION||'local',providers:['twitch','kick','vpzone']}));
