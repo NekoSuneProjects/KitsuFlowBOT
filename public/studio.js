@@ -140,6 +140,34 @@ async function connections(){
   for(const item of x.results)output.append(e('div',item.platform.toUpperCase()+': '+item.status+(item.error?' — '+item.error:' — '+item.category),'description'));
  },'primary')),lookup,output);
  c.append(metadata);
+ const aiCard=card('AI stream title helper','Use your own OpenAI-compatible chat-completions URL and model. Suggestions only fill the text box; nothing is published without clicking Update selected platforms.');
+ const aiState=await api('/api/creator-ai').catch(()=>({endpoint:'',model:'',hasKey:false}));
+ const endpoint=input('Chat completions URL (HTTPS)',aiState.endpoint||'');
+ const model=input('Model ID',aiState.model||'');
+ const apiKey=input('API key (leave empty to keep saved key)','');
+ apiKey.el.type='password';
+ const aiContext=input('Title idea or vibe','Chill gameplay, welcoming to newcomers');
+ aiCard.append(grid('cols2',endpoint.node,model.node,apiKey.node,aiContext.node),actions(btn('Save AI provider',async()=>{
+  await api('/api/creator-ai','POST',{endpoint:endpoint.value(),model:model.value(),apiKey:apiKey.value()});
+  notify('AI provider saved securely');
+ },'primary'),btn('Suggest a stream title',async()=>{
+  const x=await api('/api/creator-ai/suggest','POST',{game:gameInput.value(),context:aiContext.value()});
+  titleInput.el.value=x.title;
+  notify('Suggested title filled in. Review before publishing.');
+ })));
+ c.append(aiCard);
+ const multiCard=card('Multi-chat OBS browser source','Read combined Twitch, Kick and VPZone chat in OBS without cross-posting. The private source URL acts as a secret, and browser speech synthesis can read messages aloud.');
+ const multi=await api('/api/multichat/settings').catch(()=>({configured:false,tts_enabled:false}));
+ const speech=input('Enable browser TTS',multi.tts_enabled,'checkbox');
+ const sourceOut=e('div',multi.configured?'Source configured. Regenerate to get a replacement URL.':'No browser source URL generated yet.','description');
+ multiCard.append(speech.node,actions(btn('Save TTS option',async()=>{await api('/api/multichat/settings','POST',{tts_enabled:speech.value()});notify('Multi-chat TTS saved')},'primary'),btn('Generate / rotate OBS URL',async()=>{
+  const x=await api('/api/multichat/source','POST',{});
+  const url=location.origin+x.url;
+  sourceOut.replaceChildren(e('span','Keep this URL private: '),link(url,url));
+  notify('OBS browser URL generated; copy it now');
+ })),sourceOut);
+ c.append(multiCard);
+
  const runtime=await api('/api/platforms/runtime').catch(()=>null);
  const providerCard=card('Linked streaming channels','Kick and VPZone attach to your Twitch-based profile. You stay signed in with Twitch, and manage them from one dashboard. Connected platforms share creator settings and commands where their chat integrations support them.');
  let result;try{result=await api('/api/platforms')}catch(err){providerCard.append(e('div','Could not load Kick/VPZone connections: '+err.message,'empty'));result={platforms:[]}}
