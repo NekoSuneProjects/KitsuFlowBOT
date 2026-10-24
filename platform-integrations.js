@@ -7,7 +7,7 @@ const providers={
 const clean=s=>String(s??'').slice(0,250);
 const pkce=()=>crypto.randomBytes(48).toString('base64url');
 const hash=s=>crypto.createHash('sha256').update(s).digest('base64url');
-export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,isOperator,relay}) {
+export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,isOperator,relay,streamActivity}) {
  db.exec(`CREATE TABLE IF NOT EXISTS platform_oauth(channel TEXT NOT NULL,platform TEXT NOT NULL,external_id TEXT NOT NULL,display_name TEXT NOT NULL,access_token TEXT NOT NULL,refresh_token TEXT NOT NULL,expires_at INTEGER NOT NULL,scopes TEXT NOT NULL,PRIMARY KEY(channel,platform));
  CREATE TABLE IF NOT EXISTS platform_delivery(platform TEXT NOT NULL,message_id TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(platform,message_id));`);
  db.exec("CREATE TABLE IF NOT EXISTS platform_bot_accounts(platform TEXT PRIMARY KEY,external_id TEXT NOT NULL,display_name TEXT NOT NULL,access_token TEXT NOT NULL,refresh_token TEXT NOT NULL,expires_at INTEGER NOT NULL)");
@@ -46,6 +46,8 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
    ws.on('message',raw=>{
     try{
      const event=JSON.parse(String(raw));const item=event.message||event.data||event;
+     const eventKind=String(event.type||event.event||'');
+     if(eventKind)streamActivity.emit(channel,'vpzone',eventKind,String(item.username||item.sender?.username||''),String(item.amount||item.message||'').slice(0,200),String(event.id||'')||null);
      const username=String(item.username||item.sender?.username||'');
      const body=String(item.body||item.content||item.text||'').slice(0,350);
      if(!username||!body)return;
@@ -343,6 +345,7 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  const detail=clean(kind+' '+actor);
  db.prepare('INSERT INTO platform_events(channel,platform,event_type,actor,detail) VALUES(?,?,?,?,?)').run(linked.channel,'kick',kind,actor,detail);
  db.prepare('INSERT INTO overlay_events(channel,kind,message) VALUES(?,?,?)').run(linked.channel,kind,detail);
+ streamActivity.emit(linked.channel,'kick',kind,actor,detail,msg);
  log(linked.channel,'kick-event',detail);
  if(kind==='chat.message.sent' || kind==='chat.message.created'){
   const body=String(event.content||event.message?.content||'').slice(0,350);
