@@ -20,34 +20,15 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
  const owner=[withUser,access.channelOnly('owner'),csrf];
  let providerStatus=()=>({});
  const setProviderStatus=fn=>{providerStatus=fn};
- app.get('/api/creator-ai',withUser,access.channelOnly('owner'),(req,res)=>{
-  const row=db.prepare('SELECT endpoint,model,key_encrypted FROM creator_ai_settings WHERE channel=?').get(req.channelId);
-  const configured=envAi();
-  res.set('Cache-Control','no-store').json({endpoint:row?.endpoint||configured.endpoint||'',model:row?.model||configured.model||'',hasKey:Boolean(row?.key_encrypted||configured.key),source:row?'channel':'server',serverConfigured:Boolean(configured.endpoint&&configured.model)});
- });
- app.post('/api/creator-ai',...owner,(req,res)=>{
-  try{
-   const endpoint=allowedHost(String(req.body?.endpoint||'')),model=String(req.body?.model||'').trim(),key=String(req.body?.apiKey||'');
-   if(!model||model.length>100||key.length>500)return res.status(400).json({error:'Invalid model or key'});
-   const before=db.prepare('SELECT key_encrypted FROM creator_ai_settings WHERE channel=?').get(req.channelId);
-   if(!key&&!before?.key_encrypted)return res.status(400).json({error:'Add an API key'});
-   db.prepare('INSERT INTO creator_ai_settings(channel,endpoint,model,key_encrypted) VALUES(?,?,?,?) ON CONFLICT(channel) DO UPDATE SET endpoint=excluded.endpoint,model=excluded.model,key_encrypted=excluded.key_encrypted')
-    .run(req.channelId,endpoint,model,key?enc(key):before.key_encrypted);
-   res.json({ok:true});
-  }catch(e){res.status(400).json({error:String(e.message)})}
- });
  app.post('/api/creator-ai/suggest',...owner,async(req,res)=>{
-  const row=db.prepare('SELECT * FROM creator_ai_settings WHERE channel=?').get(req.channelId);
-  const fromEnv=envAi();
-  const active=row?{endpoint:row.endpoint,model:row.model,key:dec(row.key_encrypted),serverManaged:false}:{...fromEnv,serverManaged:true};
-  if(!active.endpoint||!active.model)return res.status(409).json({error:'Configure AI_TITLE_API_URL and AI_TITLE_MODEL on the server, or save a provider in Studio'});
+  const active=envAi();
+  if(!active.endpoint||!active.model)return res.status(409).json({error:'Configure AI_TITLE_API_URL and AI_TITLE_MODEL on the server'});
   const game=String(req.body?.game||'').trim().slice(0,90),context=String(req.body?.context||'').trim().slice(0,200);
   if(!game)return res.status(400).json({error:'Enter the game/category first'});
   try{
-   // Administrator-controlled env endpoints may be private HTTP Docker/Ollama URLs.
-   // User-supplied dashboard endpoints retain the public HTTPS validation rule.
-   const url=active.serverManaged?new URL(active.endpoint).toString():allowedHost(active.endpoint);
-   if(active.serverManaged&&!['http:','https:'].includes(new URL(url).protocol))throw Error('Invalid server AI URL scheme');
+   // Endpoint settings are administered only through server environment variables.
+   const url=new URL(active.endpoint);
+   if(!['http:','https:'].includes(url.protocol))throw Error('Invalid server AI URL scheme');
    const response=await fetch(url,{method:'POST',redirect:'error',headers:{...(active.key?{Authorization:'Bearer '+active.key}:{}),'Content-Type':'application/json'},body:JSON.stringify({model:active.model,temperature:0.7,max_tokens:120,messages:[{role:'system',content:'Return only one catchy, discoverable live stream title, plain text, at most 110 characters. Mention the actual supplied game, avoid misleading claims, giveaways or hashtags spam, profanity and platform-policy violations. Never claim something untrue. No quotation marks.'},{role:'user',content:'Game: '+game+'\nExtra context: '+context}]}),signal:AbortSignal.timeout(18000)});
    if(!response.ok)return res.status(502).json({error:'AI provider HTTP '+response.status});
    const payload=await response.json();
