@@ -6,11 +6,11 @@ export function installRelay({app,db,withUser,csrf,access,isOperator,log,observe
  const supported=new Set(['twitch','kick','vpzone']), senders=new Map(),recent=new Map();
  const register=(platform,fn)=>senders.set(platform,fn);
  const identityPrefix='[KitsuFlow relay ';
- async function relay(channel,source,username,content,{isBot=false}={}){
+ async function relay(channel,source,username,content,{isBot=false,fragments=[]}={}){
   if(!supported.has(source)||isBot)return;
   const clean=String(content||'').trim().slice(0,350),sender=String(username||'unknown').replace(/[^a-z0-9_-]/gi,'').slice(0,28);
   if(!clean||clean.startsWith(identityPrefix))return;
-  if(observe)observe(channel,source,username,clean);
+  if(observe)observe(channel,source,username,clean,{fragments});
   const now=Date.now(),key=channel+':'+source+':'+sender+':'+clean;
   if((recent.get(key)||0)>now-12000)return;
   recent.set(key,now);if(recent.size>1000)for(const [k,v] of recent)if(v<now-60000)recent.delete(k);
