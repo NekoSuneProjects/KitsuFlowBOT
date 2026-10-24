@@ -66,7 +66,7 @@ export function installVoice({app,db,withUser,csrf,access,api,clip,log,say}) {
    if(!['kick','vpzone'].includes(platform))return res.sendStatus(404);
    const cfg=db.prepare('SELECT * FROM voice_platform_settings WHERE channel=? AND platform=? AND enabled=1').get(channel,platform);
    if(!cfg||!db.prepare('SELECT 1 FROM platform_oauth WHERE channel=? AND platform=?').get(channel,platform))return res.status(409).json({error:'Voice detection not enabled for linked platform'});
-   const normalized=transcript.replace(/[^a-z0-9 ]/g,' ').replace(/\\s+/g,' ').trim();
+   const normalized=transcript.replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
    if(!normalized.includes(cfg.phrase))return res.status(400).json({error:'Phrase does not match'});
    const now=Date.now(),updated=db.prepare('UPDATE voice_platform_settings SET last_trigger=? WHERE channel=? AND platform=? AND enabled=1 AND last_trigger<=?').run(now,channel,platform,now-cfg.cooldown*1000);
    if(!updated.changes)return res.status(429).json({error:'Cooldown'});
