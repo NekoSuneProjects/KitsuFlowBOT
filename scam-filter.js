@@ -3,7 +3,8 @@ import {domainToASCII} from 'node:url';
 export const FEEDS=[
  'https://raw.githubusercontent.com/Phishing-Database/Phishing.Database/master/phishing-domains-ACTIVE.txt',
  'https://raw.githubusercontent.com/jarelllama/Scam-Blocklist/main/lists/wildcard_domains/scams_light.txt',
- 'https://raw.githubusercontent.com/Discord-AntiScam/scam-links/main/list.txt'
+ 'https://raw.githubusercontent.com/Discord-AntiScam/scam-links/main/list.txt',
+ 'https://raw.githubusercontent.com/Bocon778/TwitchScamDomains/main/list.json'
 ];
 const normalize=value=>{
  const domain=domainToASCII(String(value||'').trim().toLowerCase().replace(/\.$/,''));
@@ -17,11 +18,12 @@ export function createScamFilter({log}){
    if(!response.ok)throw Error('HTTP '+response.status);
    const data=await response.text();
    if(data.length>16000000)throw Error('Oversized blocklist');
-   const lines=data.split(/\r?\n/),entries=new Set();
+   const lines=url.endsWith('.json')?JSON.parse(data):data.split(/\r?\n/),entries=new Set();
+   if(!Array.isArray(lines))throw Error('Invalid feed format');
    for(const row of lines){const raw=row.trim();if(!raw||raw.startsWith('#')||raw.startsWith('!'))continue;
     const host=normalize(raw);if(host)entries.add(host);
    }
-   if(entries.size<100)throw Error('Feed has too few valid entries');
+   if(entries.size<(url.endsWith('list.json')?5:100))throw Error('Feed has too few valid entries');
    return entries;
   }));
   const combined=new Set();
@@ -33,7 +35,8 @@ export function createScamFilter({log}){
  }
  function match(message){
   if(!domains.size)return null;
-  const urls=String(message||'').match(/(?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:\/[^\s]*)?/ig)||[];
+  const clean=String(message||'').replace(/\s*(?:\(dot\)|\[dot\]|\{dot\}|\s+dot\s+)\s*/gi,'.').replace(/[．。｡]/g,'.').replace(/\s*\.\s*/g,'.');
+  const urls=clean.match(/(?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:\/[^\s]*)?/ig)||[];
   for(const raw of urls){
    let host;
    try{host=normalize(new URL(/^https?:\/\//i.test(raw)?raw:'https://'+raw).hostname)}catch{continue}
