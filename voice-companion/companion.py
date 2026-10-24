@@ -105,17 +105,47 @@ class App:
         style.configure("Muted.TLabel", foreground=muted)
         style.configure("Heading.TLabel", foreground=text, font=("Segoe UI Semibold", 16))
         style.configure("Brand.TLabel", background=bg, foreground=teal, font=("Segoe UI Semibold", 17))
-        style.configure("TButton", padding=(14, 9), font=("Segoe UI Semibold", 10))
-        style.configure("Primary.TButton", padding=(22, 14), background="#159f8a", foreground="#ffffff",
-                        font=("Segoe UI Semibold", 12), borderwidth=0)
-        style.map("Primary.TButton", background=[("active", "#1bbc9f"), ("disabled", "#355657")])
-        style.configure("Danger.TButton", padding=(20, 14), background="#57323f", foreground="#ffe8ee",
-                        font=("Segoe UI Semibold", 11), borderwidth=0)
-        style.configure("TEntry", fieldbackground=raised, foreground=text, padding=8)
-        style.configure("TCombobox", fieldbackground=raised, foreground=text, padding=7)
+        style.configure("TButton", background="#1b3147", foreground=text,
+                        bordercolor=border, lightcolor="#1b3147", darkcolor="#1b3147",
+                        padding=(14, 9), font=("Segoe UI Semibold", 10), relief="flat")
+        style.map("TButton", background=[("active", "#294860"), ("pressed", "#173047"), ("disabled", "#192837")],
+                  foreground=[("disabled", "#738b9f")])
+        style.configure("Primary.TButton", background="#159f8a", foreground="#061b1a",
+                        bordercolor="#159f8a", lightcolor="#159f8a", darkcolor="#159f8a",
+                        padding=(22, 14), font=("Segoe UI Semibold", 12), relief="flat")
+        style.map("Primary.TButton", background=[("active", "#31d2b6"), ("disabled", "#355657")],
+                  foreground=[("disabled", "#8bb7ae")])
+        style.configure("Danger.TButton", background="#57323f", foreground="#ffe8ee",
+                        bordercolor="#57323f", lightcolor="#57323f", darkcolor="#57323f",
+                        padding=(20, 14), font=("Segoe UI Semibold", 11), relief="flat")
+        style.map("Danger.TButton", background=[("active", "#784356"), ("disabled", "#392b34")],
+                  foreground=[("disabled", "#a38c97")])
+        for name, color, foreground in (("Nav.TButton", "#1b3147", text),
+                                         ("NavActive.TButton", "#159f8a", "#061b1a")):
+            style.configure(name, background=color, foreground=foreground,
+                            bordercolor=color, lightcolor=color, darkcolor=color,
+                            padding=(19, 10), font=("Segoe UI Semibold", 10), relief="flat")
+        style.map("Nav.TButton", background=[("active", "#294860")])
+        style.configure("TEntry", fieldbackground=raised, foreground=text, bordercolor=border,
+                        lightcolor=border, darkcolor=border, insertcolor=text, padding=8)
+        style.map("TEntry", fieldbackground=[("disabled", "#13202d")], foreground=[("disabled", muted)])
+        style.configure("TCombobox", fieldbackground=raised, background=raised, foreground=text,
+                        bordercolor=border, lightcolor=border, darkcolor=border,
+                        arrowcolor=text, padding=8)
+        style.map("TCombobox",
+                  fieldbackground=[("readonly", raised), ("disabled", "#13202d")],
+                  background=[("readonly", raised), ("disabled", "#13202d")],
+                  foreground=[("readonly", text), ("disabled", muted)],
+                  selectbackground=[("readonly", raised)],
+                  selectforeground=[("readonly", text)],
+                  arrowcolor=[("readonly", text), ("disabled", muted)])
         style.configure("TCheckbutton", background=panel, foreground=text)
-        style.map("TCheckbutton", background=[("active", panel)])
+        style.map("TCheckbutton", background=[("active", panel)], foreground=[("disabled", muted)])
         style.configure("TProgressbar", troughcolor=raised, background=teal, borderwidth=0)
+        self.root.option_add("*TCombobox*Listbox.background", raised)
+        self.root.option_add("*TCombobox*Listbox.foreground", text)
+        self.root.option_add("*TCombobox*Listbox.selectBackground", "#159f8a")
+        self.root.option_add("*TCombobox*Listbox.selectForeground", "#061b1a")
         shell = ttk.Frame(self.root, style="App.TFrame", padding=18)
         shell.pack(fill="both", expand=True)
         header = ttk.Frame(shell, style="App.TFrame")
@@ -125,7 +155,7 @@ class App:
         nav = ttk.Frame(header, style="App.TFrame")
         nav.pack(side="right")
         for name in ("Home", "Settings"):
-            button = ttk.Button(nav, text=name, command=lambda value=name: self.show_page(value))
+            button = ttk.Button(nav, text=name, style="Nav.TButton", command=lambda value=name: self.show_page(value))
             button.pack(side="left", padx=(8, 0))
             self.page_buttons[name] = button
         self.pages = {}
@@ -220,7 +250,7 @@ class App:
             page.pack_forget()
         self.pages[name].pack(fill="both", expand=True)
         for label, button in self.page_buttons.items():
-            button.state(["disabled"] if label == name else ["!disabled"])
+            button.configure(style="NavActive.TButton" if label == name else "Nav.TButton")
 
     def clear_log(self):
         self.log.configure(state="normal")
@@ -495,7 +525,9 @@ class App:
                         text = " ".join(" ".join(piece.text.lower().split()) for piece in chunks).strip()
                         if text: send("log", "Whisper heard: " + text[:120])
                     phrase = config.get("phrase", "clip it")
-                    if phrase not in text or now - last < config.get("cooldown", 45):
+                    # Match full phrase as words anywhere in speech, not unrelated substrings.
+                    phrase_pattern = r"(?<!\\w)" + r"\\s+".join(re.escape(part) for part in phrase.lower().split()) + r"(?!\\w)"
+                    if not re.search(phrase_pattern, text, re.IGNORECASE) or now - last < config.get("cooldown", 45):
                         continue
                     last = now
                     send("log", "Voice trigger recognised: " + phrase)
