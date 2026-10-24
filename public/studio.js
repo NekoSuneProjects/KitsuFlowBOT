@@ -160,8 +160,10 @@ async function connections(){
  const multiCard=card('Multi-chat OBS browser source','Read combined Twitch, Kick and VPZone chat in OBS without cross-posting. The private source URL acts as a secret, and browser speech synthesis can read messages aloud.');
  const multi=await api('/api/multichat/settings').catch(()=>({configured:false,tts_enabled:false}));
  const speech=input('Enable browser TTS',multi.tts_enabled,'checkbox');
+ const ttsRate=input('TTS speaking rate (0.5 - 2)',multi.tts_rate??1.08,'number');
+ const ttsVolume=input('TTS volume (0 - 1)',multi.tts_volume??1,'number');
  const sourceOut=e('div',multi.configured?'Source configured. Regenerate to get a replacement URL.':'No browser source URL generated yet.','description');
- multiCard.append(speech.node,actions(btn('Save TTS option',async()=>{await api('/api/multichat/settings','POST',{tts_enabled:speech.value()});notify('Multi-chat TTS saved')},'primary'),btn('Generate / rotate OBS URL',async()=>{
+ multiCard.append(grid('cols2',speech.node,ttsRate.node,ttsVolume.node),actions(btn('Save TTS option',async()=>{await api('/api/multichat/settings','POST',{tts_enabled:speech.value(),tts_rate:ttsRate.value(),tts_volume:ttsVolume.value()});notify('Multi-chat TTS saved')},'primary'),btn('Generate / rotate OBS URL',async()=>{
   const x=await api('/api/multichat/source','POST',{});
   const url=location.origin+x.url;
   sourceOut.replaceChildren(e('span','Keep these OBS browser URLs private:'),h('div','list-row',e('span','Multi-chat'),link(url,url)),h('div','list-row',e('span','Game & title'),link(location.origin+x.game_url,location.origin+x.game_url)),h('div','list-row',e('span','Activity Feed'),link(location.origin+x.activity_url,location.origin+x.activity_url)));
