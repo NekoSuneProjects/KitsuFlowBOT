@@ -114,17 +114,17 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  const authUser=(req,res,next)=>req.session.uid?next():res.status(401).json({error:'Sign in with Twitch first'});
  const verifyChannel=(req,res,next)=>{const channel=access.channelFor(req);if(!channel||!access.can(req.session.uid,channel,'owner'))return res.status(403).json({error:'Channel owner required'});req.channelId=channel;next()};
  app.post('/api/platforms/kick/subscribe',withUser,access.channelOnly('owner'),csrf,safe(async(req,res)=>{await subscribeKickChat(req.channelId);res.json(db.prepare('SELECT status,detail,updated_at FROM kick_chat_status WHERE channel=?').get(req.channelId))}));
- app.get('/api/platforms/runtime',withUser,access.channelOnly('editor'),(req,res)=>{
+ app.get('/api/platforms/runtime',withUser,access.channelOnly('owner'),(req,res)=>{
  const sock=vpSockets.get(req.channelId);
  res.json({vpzone:{linked:Boolean(db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='vpzone'").get(req.channelId)),chat_connected:Boolean(sock?.ws?.readyState===WebSocket.OPEN)},kick:{linked:Boolean(db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='kick'").get(req.channelId)),webhook_enabled:process.env.KICK_WEBHOOK_ENABLED!=='false',subscription_active:db.prepare('SELECT status FROM kick_chat_status WHERE channel=?').get(req.channelId)?.status==='subscribed',detail:db.prepare('SELECT detail FROM kick_chat_status WHERE channel=?').get(req.channelId)?.detail||'Subscription not registered'}});
  });
- app.get('/api/platforms/kick/scopes',withUser,access.channelOnly('editor'),(req,res)=>{
+ app.get('/api/platforms/kick/scopes',withUser,access.channelOnly('owner'),(req,res)=>{
   const account=db.prepare("SELECT scopes FROM platform_oauth WHERE channel=? AND platform='kick'").get(req.channelId);
   const requested=String(conf('kick')?.scope||'').split(/[\s,]+/).filter(Boolean);
   const stored=String(account?.scopes||'').split(/[\s,]+/).filter(Boolean);
   res.set('Cache-Control','no-store').json({linked:Boolean(account),requested,stored,missing:requested.filter(scope=>!stored.includes(scope)),requiresReauthorisation:!stored.includes('events:subscribe')});
  });
- app.get('/api/platforms',withUser,access.channelOnly('editor'),(req,res)=>{
+ app.get('/api/platforms',withUser,access.channelOnly('owner'),(req,res)=>{
  const rows=db.prepare('SELECT platform,external_id,display_name,expires_at,scopes FROM platform_oauth WHERE channel=?').all(req.channelId);
  res.json({platforms:['twitch','kick','vpzone'].map(platform=>({platform,configured:platform==='twitch'||Boolean(conf(platform)?.clientId&&conf(platform)?.clientSecret),connection:rows.find(r=>r.platform===platform)||null}))});
  });
@@ -255,7 +255,7 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   return {ok:true};
  }
  relay.register('vpzone',vpzoneBotSay);
- app.post('/api/platforms/vpzone/chat',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{
+ app.post('/api/platforms/vpzone/chat',withUser,access.channelOnly('owner'),csrf,safe(async(req,res)=>{
   res.json(await vpzoneBotSay(req.channelId,req.body?.message));
  }));
  // Kick's official bot mode uses app credentials, not the Twitch shared-bot identity.
@@ -308,13 +308,13 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   return {ok:true,mode:'oauth-bot'};
  }
  relay.register('kick',kickBotSay);
- app.post('/api/platforms/kick/chat',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{
+ app.post('/api/platforms/kick/chat',withUser,access.channelOnly('owner'),csrf,safe(async(req,res)=>{
   const result=await kickBotSay(req.channelId,req.body.message);res.json(result);
  }));
- app.get('/api/platforms/linked',withUser,access.channelOnly('editor'),(req,res)=>{
+ app.get('/api/platforms/linked',withUser,access.channelOnly('owner'),(req,res)=>{
   res.json({linked:db.prepare('SELECT platform,external_id,display_name FROM platform_oauth WHERE channel=?').all(req.channelId)});
  });
- app.get('/api/platforms/:platform/channel',withUser,access.channelOnly('editor'),safe(async(req,res)=>{
+ app.get('/api/platforms/:platform/channel',withUser,access.channelOnly('owner'),safe(async(req,res)=>{
  const type=req.params.platform;if(!providers[type])return res.sendStatus(404);
  const row=db.prepare('SELECT * FROM platform_oauth WHERE channel=? AND platform=?').get(req.channelId,type);
  if(!row)return res.status(404).json({error:'Platform not connected'});
