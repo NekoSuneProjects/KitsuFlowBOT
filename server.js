@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import {installEngagement} from './engagement.js';
 import {installCreator} from './creator.js';
+import {installStreamActivity} from './stream-activity.js';
 import {installVoice} from './voice.js';
 import {installAccess} from './access.js';
 import {installPlatforms} from './platform-integrations.js';
@@ -67,13 +68,45 @@ const key=ch.id+':'+custom.name,now=Date.now();if(now<(cooldowns.get(key)||0))re
 await say(ch.id,custom.response.replaceAll('{user}',e.chatter_user_name).replaceAll('{channel}',ch.login).replaceAll('{args}',parts.slice(1).join(' ')));
 }catch(err){log(ch.id,'error',err.message)}
 }
+const engagementSockets=new Map();
+function connectEngagement(channel){
+ if(!getAccount(channel))return;
+ const previous=engagementSockets.get(channel);if(previous)previous.close();
+ const ws=new WebSocket('wss://eventsub.wss.twitch.tv/ws');
+ engagementSockets.set(channel,ws);
+ ws.on('message',async raw=>{
+  try{
+   const d=JSON.parse(String(raw)),type=d.metadata?.message_type;
+   if(type==='notification'){
+    const event=d.payload?.event||{},name=d.metadata.subscription_type;
+    streamActivity.emit(channel,'twitch',name,event.user_name||event.from_broadcaster_user_name||event.to_broadcaster_user_name||'',event.message?.text||String(event.bits||event.viewers||event.tier||''),d.metadata.message_id);
+   }else if(type==='session_welcome'){
+    const sid=d.payload.session.id;
+    const config=[
+     ['channel.follow','2',{broadcaster_user_id:channel,moderator_user_id:channel}],
+     ['channel.subscribe','1',{broadcaster_user_id:channel}],
+     ['channel.subscription.gift','1',{broadcaster_user_id:channel}],
+     ['channel.subscription.message','1',{broadcaster_user_id:channel}],
+     ['channel.cheer','1',{broadcaster_user_id:channel}],
+     ['channel.raid','1',{to_broadcaster_user_id:channel}]
+    ];
+    for(const [name,version,condition] of config){
+     try{await api(channel,'eventsub/subscriptions','POST',{type:name,version,condition,transport:{method:'websocket',session_id:sid}})}
+     catch(err){log(channel,'twitch-eventsub-error',name+': '+err.message)}
+    }
+   }
+  }catch(err){log(channel,'twitch-engagement-error',err.message)}
+ });
+ ws.on('close',()=>{if(engagementSockets.get(channel)===ws){const handle=setTimeout(()=>connectEngagement(channel),10000);handle.unref?.()}});
+ ws.on('error',err=>log(channel,'twitch-engagement-ws-error',err.message));
+}
 const sockets=new Map();
 async function connectChat(){const id=botId();if(!id)return;
 const prev=sockets.get('bot');if(prev)prev.close();
 let ws=new WebSocket('wss://eventsub.wss.twitch.tv/ws');sockets.set('bot',ws);
 ws.on('message',async raw=>{try{const d=JSON.parse(raw);const type=d.metadata?.message_type;
 if(type==='session_reconnect'){ws.close();ws=new WebSocket(d.payload.session.reconnect_url);sockets.set('bot',ws);return}
-if(type==='notification'&&d.metadata.subscription_type==='channel.chat.message'){await message(d.payload.event);return}
+if(type==='notification'){if(d.metadata.subscription_type==='channel.chat.message'){await message(d.payload.event);return}const ev=d.payload.event||{};const target=String(ev.broadcaster_user_id||ev.to_broadcaster_user_id||'');if(target&&db.prepare('SELECT 1 FROM channels WHERE id=?').get(target))streamActivity.emit(target,'twitch',d.metadata.subscription_type,ev.user_name||ev.from_broadcaster_user_name||'',ev.message?.text||ev.tier||String(ev.bits||ev.viewers||''),d.metadata.message_id);return}
 if(type==='session_welcome'){const channels=db.prepare('SELECT id FROM channels WHERE enabled=1').all();for(const ch of channels){try{await api(id,'eventsub/subscriptions','POST',{type:'channel.chat.message',version:'1',condition:{broadcaster_user_id:ch.id,user_id:id},transport:{method:'websocket',session_id:d.payload.session.id}})}catch(err){log(ch.id,'error','EventSub: '+err.message)}}}
 }catch(e){console.error('EventSub',e.message)}});
 ws.on('close',()=>{if(sockets.get('bot')===ws)setTimeout(connectChat,5000)});ws.on('error',e=>console.error('WS',e.message))}
@@ -92,15 +125,17 @@ const r=await fetch('https://id.twitch.tv/oauth2/token',{method:'POST',body:new 
 const who=await fetch('https://api.twitch.tv/helix/users',{headers:{'Client-Id':CID,Authorization:'Bearer '+t.access_token}});if(!who.ok)throw Error('User lookup failed');const u=(await who.json()).data[0];
 db.prepare('INSERT INTO accounts(id,login,display,access,refresh,expires,scopes) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET login=excluded.login,display=excluded.display,access=excluded.access,refresh=excluded.refresh,expires=excluded.expires,scopes=excluded.scopes').run(u.id,u.login,u.display_name,enc(t.access_token),enc(t.refresh_token),Date.now()+t.expires_in*1000,JSON.stringify(t.scope||[]));
 if(s.role==='bot'&&u.id===s.owner)throw Error('A separate bot Twitch account is required; do not authorise your admin streamer account as the bot.');
-if(s.role==='streamer'){req.session.uid=u.id;db.prepare('INSERT INTO channels(id,login) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET login=excluded.login').run(u.id,u.login)}
+if(s.role==='streamer'){req.session.uid=u.id;db.prepare('INSERT INTO channels(id,login) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET login=excluded.login').run(u.id,u.login);connectEngagement(u.id)}
 else{if(!s.owner||s.owner!==req.session.uid||!isOperator(s.owner))throw Error('Only the KitsuFlowBOT operator may configure the shared bot');db.prepare("INSERT INTO config(key,value) VALUES('bot_id',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(u.id);connectChat()}
 res.redirect('/dashboard')}));
 app.post('/logout',csrf,(req,res)=>req.session.destroy(()=>res.json({ok:true})));
 const access=installAccess({app,db,withUser,csrf,safe,log});
+const streamActivity=installStreamActivity({app,db,withUser,access});
+app.get('/api/admin/logs',withUser,(req,res)=>{if(!isOperator(req.session.uid))return res.status(403).json({error:'Operator access required'});res.set('Cache-Control','no-store').json(db.prepare('SELECT l.channel,c.login,l.event,l.detail,l.created FROM logs l LEFT JOIN channels c ON c.id=l.channel ORDER BY l.id DESC LIMIT 250').all())});
 const relay=installRelay({app,db,withUser,csrf,access,isOperator,log});
 relay.register('twitch',async(channel,text)=>say(channel,text));
 // Existing studio endpoints resolve the selected channel, not the login identity.
-app.use(['/api/state','/api/settings','/api/commands','/api/clip','/api/moderate','/api/engagement','/api/creator'],withUser,(req,res,next)=>{const channel=access.channelFor(req);if(!channel)return res.status(403).json({error:'No channel access'});if(req.method!=='GET'){const required=req.path.startsWith('/api/moderate')||req.path.startsWith('/api/settings')||req.path.startsWith('/api/clip')||req.path.startsWith('/api/creator/queue')||req.path.startsWith('/api/creator/campaign/draw')||req.path.startsWith('/api/creator/redeem')?'bot_supervisor':'editor';if(!access.can(req.session.uid,channel,required))return res.status(403).json({error:'Insufficient channel permissions'});}req.channelId=channel;next()});
+app.use(['/api/state','/api/settings','/api/commands','/api/clip','/api/moderate','/api/engagement','/api/creator'],withUser,(req,res,next)=>{const channel=access.channelFor(req);if(!channel)return res.status(403).json({error:'No channel access'});if(req.path.startsWith('/api/settings')&&!access.can(req.session.uid,channel,'owner'))return res.status(403).json({error:'Owner access required'});if(req.method!=='GET'){const required=req.path.startsWith('/api/moderate')||req.path.startsWith('/api/settings')||req.path.startsWith('/api/clip')||req.path.startsWith('/api/creator/queue')||req.path.startsWith('/api/creator/campaign/draw')||req.path.startsWith('/api/creator/redeem')?'bot_supervisor':'editor';if(!access.can(req.session.uid,channel,required))return res.status(403).json({error:'Insufficient channel permissions'});}req.channelId=channel;next()});
 app.get('/api/admin/overview',withUser,(req,res)=>{if(!isOperator(req.session.uid))return res.status(403).json({error:'Operator access required'});const b=getAccount(botId());const channels=db.prepare('SELECT id,login,enabled FROM channels ORDER BY login').all();res.set('Cache-Control','no-store').json({operator:true,bot:b?{id:b.id,login:b.login,display:b.display,expires:b.expires,scopes:JSON.parse(b.scopes||'[]')}:null,channels,enabled_count:channels.filter(x=>x.enabled).length,connection_status:b?(sockets.get('bot')?.readyState===1?'connected':'disconnected'):'not_configured'});});
 app.post('/api/admin/bot/reconnect',withUser,csrf,safe(async(req,res)=>{if(!isOperator(req.session.uid))return res.status(403).json({error:'Operator access required'});if(!botId())return res.status(409).json({error:'Authorise the public bot first'});await token(botId());await connectChat();log(req.session.uid,'bot-reconnect','Operator requested EventSub reconnection');res.json({ok:true})}));
 // The device grant is an alternative for administrators who have the dedicated bot signed in on another browser/device.
@@ -155,17 +190,17 @@ app.get('/api/admin/bot/status',withUser,requireAdmin,(req,res)=>{
  res.json({admins_configured:adminIds.size,bot:b?{id:b.id,login:b.login,scopes:JSON.parse(b.scopes||'[]')}:null,connected:Boolean(b)});
 });
 app.get('/api/state',withUser,(req,res)=>{const ch=db.prepare('SELECT * FROM channels WHERE id=?').get(req.channelId);res.json({channel:ch,role:access.role(req.session.uid,req.channelId),isOperator:isOperator(req.session.uid),bot:(()=>{const b=getAccount(botId());return b?{id:b.id,login:b.login}:null})(),commands:db.prepare('SELECT * FROM commands WHERE channel=? ORDER BY name').all(req.channelId),logs:db.prepare('SELECT * FROM logs WHERE channel=? ORDER BY id DESC LIMIT 30').all(req.channelId)})});
-app.post('/api/settings',withUser,access.channelOnly('bot_supervisor'),csrf,(req,res)=>{if(req.body.enabled===true&&!botId())return res.status(409).json({error:'Shared bot is not connected yet'});db.prepare('UPDATE channels SET enabled=?,links=? WHERE id=?').run(req.body.enabled===true?1:0,req.body.links===true?1:0,req.channelId);connectChat();res.json({ok:true})});
+app.post('/api/settings',withUser,access.channelOnly('owner'),csrf,(req,res)=>{if(req.body.enabled===true&&!botId())return res.status(409).json({error:'Shared bot is not connected yet'});db.prepare('UPDATE channels SET enabled=?,links=? WHERE id=?').run(req.body.enabled===true?1:0,req.body.links===true?1:0,req.channelId);connectChat();res.json({ok:true})});
 app.post('/api/channel/disconnect',withUser,access.channelOnly('owner'),csrf,(req,res)=>{const id=req.channelId;db.prepare('UPDATE channels SET enabled=0 WHERE id=?').run(id);db.prepare('DELETE FROM accounts WHERE id=? AND id != ?').run(id,botId()||'');connectChat();req.session.destroy(()=>res.json({ok:true}))});
 app.post('/api/commands',withUser,access.channelOnly('editor'),csrf,(req,res)=>{const name=String(req.body.name||'').toLowerCase().replace(/^!/,'');const response=String(req.body.response||'');if(!/^[a-z0-9_]{1,32}$/.test(name)||['clip','ban','timeout','uptime','points','top','addquote','quote','counter'].includes(name)||!response||response.length>450||!['everyone','subscriber','moderator'].includes(req.body.level))return res.status(400).json({error:'Invalid command'});db.prepare('INSERT INTO commands(channel,name,response,cooldown,level) VALUES(?,?,?,?,?) ON CONFLICT(channel,name) DO UPDATE SET response=excluded.response,cooldown=excluded.cooldown,level=excluded.level').run(req.channelId,name,response,Math.max(0,Math.min(3600,Number(req.body.cooldown)||0)),req.body.level);res.json({ok:true})});
 app.delete('/api/commands/:name',withUser,access.channelOnly('editor'),csrf,(req,res)=>{db.prepare('DELETE FROM commands WHERE channel=? AND name=?').run(req.channelId,req.params.name);res.json({ok:true})});
 app.post('/api/clip',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{const c=await clip(req.channelId);res.json(c)}));
 app.post('/api/moderate',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{if(!['ban','timeout'].includes(req.body.action))throw Error('Invalid action');const uid=await lookup(String(req.body.user||''));const seconds=req.body.action==='timeout'?Math.max(1,Math.min(1209600,Number(req.body.seconds)||600)):null;await moderate(req.channelId,uid,seconds,'Dashboard moderation');log(req.channelId,req.body.action,req.body.user);res.json({ok:true})}));
 const engagement=installEngagement({app,db,withUser,csrf,safe,say,moderate,log,api});
-const creator=installCreator({app,db,withUser,csrf,safe,log,say});
+const creator=installCreator({app,db,withUser,csrf,safe,log,say,access});
 installVoice({app,db,withUser,csrf,access,api,clip,log,say});
-installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,relay});
+installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,relay,streamActivity});
 app.get('/dashboard',(req,res)=>{res.set('Cache-Control','no-store, max-age=0');return req.session.uid?res.sendFile(path.resolve('public/dashboard.html')):res.redirect('/login')});
 app.get('/login',(req,res)=>req.session.uid?res.redirect('/dashboard'):res.sendFile(path.resolve('public/login.html')));
 app.get('/api/build-info',(req,res)=>res.set('Cache-Control','no-store').json({version:process.env.GITHUB_SHA||process.env.APP_VERSION||'local',providers:['twitch','kick','vpzone']}));
-app.use(express.static('public',{index:'index.html',redirect:false,setHeaders:(res,file)=>{if(/(?:studio\.js|dashboard\.html)$/.test(file))res.setHeader('Cache-Control','no-store, max-age=0')}}));app.listen(PORT,()=>console.log('KitsuFlowBOT on '+PORT));connectChat();
+app.use(express.static('public',{index:'index.html',redirect:false,setHeaders:(res,file)=>{if(/(?:studio\.js|dashboard\.html)$/.test(file))res.setHeader('Cache-Control','no-store, max-age=0')}}));app.listen(PORT,()=>console.log('KitsuFlowBOT on '+PORT));connectChat();for(const row of db.prepare('SELECT id FROM channels').all())connectEngagement(row.id);

@@ -20,7 +20,7 @@ export function installRelay({app,db,withUser,csrf,access,isOperator,log}) {
    catch(err){log(channel,'relay-error',source+'->'+target+': '+err.message);db.prepare('INSERT INTO chat_relay_events(channel,source,target,sender,content,status) VALUES(?,?,?,?,?,?)').run(channel,source,target,sender,clean,'failed')}
   }
  }
- app.get('/api/relay',withUser,access.channelOnly('editor'),(req,res)=>{
+ app.get('/api/relay',withUser,access.channelOnly('owner'),(req,res)=>{
   res.json({routes:db.prepare('SELECT source,target,enabled FROM chat_relay_settings WHERE channel=?').all(req.channelId),history:db.prepare('SELECT source,target,sender,content,status,created FROM chat_relay_events WHERE channel=? ORDER BY id DESC LIMIT 50').all(req.channelId)});
  });
  app.post('/api/relay',withUser,access.channelOnly('owner'),csrf,(req,res)=>{

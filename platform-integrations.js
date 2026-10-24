@@ -7,7 +7,7 @@ const providers={
 const clean=s=>String(s??'').slice(0,250);
 const pkce=()=>crypto.randomBytes(48).toString('base64url');
 const hash=s=>crypto.createHash('sha256').update(s).digest('base64url');
-export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,isOperator,relay}) {
+export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,isOperator,relay,streamActivity}) {
  db.exec(`CREATE TABLE IF NOT EXISTS platform_oauth(channel TEXT NOT NULL,platform TEXT NOT NULL,external_id TEXT NOT NULL,display_name TEXT NOT NULL,access_token TEXT NOT NULL,refresh_token TEXT NOT NULL,expires_at INTEGER NOT NULL,scopes TEXT NOT NULL,PRIMARY KEY(channel,platform));
  CREATE TABLE IF NOT EXISTS platform_delivery(platform TEXT NOT NULL,message_id TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(platform,message_id));`);
  db.exec("CREATE TABLE IF NOT EXISTS platform_bot_accounts(platform TEXT PRIMARY KEY,external_id TEXT NOT NULL,display_name TEXT NOT NULL,access_token TEXT NOT NULL,refresh_token TEXT NOT NULL,expires_at INTEGER NOT NULL)");
@@ -46,6 +46,8 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
    ws.on('message',raw=>{
     try{
      const event=JSON.parse(String(raw));const item=event.message||event.data||event;
+     const eventKind=String(event.type||event.event||'');
+     if(eventKind)streamActivity.emit(channel,'vpzone',eventKind,String(item.username||item.sender?.username||''),String(item.amount||item.message||'').slice(0,200),String(event.id||'')||null);
      const username=String(item.username||item.sender?.username||'');
      const body=String(item.body||item.content||item.text||'').slice(0,350);
      if(!username||!body)return;
@@ -97,12 +99,14 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
    if(!response.ok)throw Error('List subscriptions HTTP '+response.status);
    const data=await response.json();
    const rows=Array.isArray(data.data)?data.data:Array.isArray(data.data?.subscriptions)?data.data.subscriptions:[];
-   const existing=rows.some(x=>x.event==='chat.message.sent'||x.name==='chat.message.sent'||x.event?.name==='chat.message.sent');
-   if(existing)return status('subscribed','Existing chat.message.sent subscription');
-   const created=await fetch(url,{method:'POST',headers,body:JSON.stringify({broadcaster_user_id:Number(account.external_id),method:'webhook',events:[{name:'chat.message.sent',version:1}]}),signal:AbortSignal.timeout(12000)});
-   if(!created.ok)throw Error('Create chat subscription HTTP '+created.status+' '+(await created.text()).slice(0,150));
-   status('subscribed','chat.message.sent subscription requested');
-   log(channel,'kick-chat-subscription','registered');
+   const wanted=['chat.message.sent','channel.followed','channel.subscription.new','channel.subscription.renewal','channel.subscription.gifts','kicks.gifted'];
+   const existing=new Set(rows.map(x=>String(x.event?.name||x.event||x.name||'')));
+   const missing=wanted.filter(name=>!existing.has(name));
+   if(!missing.length)return status('subscribed','Chat and engagement subscriptions already registered');
+   const created=await fetch(url,{method:'POST',headers,body:JSON.stringify({broadcaster_user_id:Number(account.external_id),method:'webhook',events:missing.map(name=>({name,version:1}))}),signal:AbortSignal.timeout(12000)});
+   if(!created.ok)throw Error('Create Kick subscriptions HTTP '+created.status+' '+(await created.text()).slice(0,150));
+   status('subscribed','Chat and engagement subscriptions requested: '+missing.join(', '));
+   log(channel,'kick-event-subscriptions','registered: '+missing.join(', '));
   }catch(err){status('error',err.message);log(channel,'kick-subscription-error',err.message)}
  }
  const conf=type=>{const p=providers[type];if(!p)return null;return {...p,clientId:process.env[p.client],clientSecret:process.env[p.secret]}};
@@ -110,17 +114,17 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  const authUser=(req,res,next)=>req.session.uid?next():res.status(401).json({error:'Sign in with Twitch first'});
  const verifyChannel=(req,res,next)=>{const channel=access.channelFor(req);if(!channel||!access.can(req.session.uid,channel,'owner'))return res.status(403).json({error:'Channel owner required'});req.channelId=channel;next()};
  app.post('/api/platforms/kick/subscribe',withUser,access.channelOnly('owner'),csrf,safe(async(req,res)=>{await subscribeKickChat(req.channelId);res.json(db.prepare('SELECT status,detail,updated_at FROM kick_chat_status WHERE channel=?').get(req.channelId))}));
- app.get('/api/platforms/runtime',withUser,access.channelOnly('editor'),(req,res)=>{
+ app.get('/api/platforms/runtime',withUser,access.channelOnly('owner'),(req,res)=>{
  const sock=vpSockets.get(req.channelId);
  res.json({vpzone:{linked:Boolean(db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='vpzone'").get(req.channelId)),chat_connected:Boolean(sock?.ws?.readyState===WebSocket.OPEN)},kick:{linked:Boolean(db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='kick'").get(req.channelId)),webhook_enabled:process.env.KICK_WEBHOOK_ENABLED!=='false',subscription_active:db.prepare('SELECT status FROM kick_chat_status WHERE channel=?').get(req.channelId)?.status==='subscribed',detail:db.prepare('SELECT detail FROM kick_chat_status WHERE channel=?').get(req.channelId)?.detail||'Subscription not registered'}});
  });
- app.get('/api/platforms/kick/scopes',withUser,access.channelOnly('editor'),(req,res)=>{
+ app.get('/api/platforms/kick/scopes',withUser,access.channelOnly('owner'),(req,res)=>{
   const account=db.prepare("SELECT scopes FROM platform_oauth WHERE channel=? AND platform='kick'").get(req.channelId);
   const requested=String(conf('kick')?.scope||'').split(/[\s,]+/).filter(Boolean);
   const stored=String(account?.scopes||'').split(/[\s,]+/).filter(Boolean);
   res.set('Cache-Control','no-store').json({linked:Boolean(account),requested,stored,missing:requested.filter(scope=>!stored.includes(scope)),requiresReauthorisation:!stored.includes('events:subscribe')});
  });
- app.get('/api/platforms',withUser,access.channelOnly('editor'),(req,res)=>{
+ app.get('/api/platforms',withUser,access.channelOnly('owner'),(req,res)=>{
  const rows=db.prepare('SELECT platform,external_id,display_name,expires_at,scopes FROM platform_oauth WHERE channel=?').all(req.channelId);
  res.json({platforms:['twitch','kick','vpzone'].map(platform=>({platform,configured:platform==='twitch'||Boolean(conf(platform)?.clientId&&conf(platform)?.clientSecret),connection:rows.find(r=>r.platform===platform)||null}))});
  });
@@ -251,7 +255,7 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   return {ok:true};
  }
  relay.register('vpzone',vpzoneBotSay);
- app.post('/api/platforms/vpzone/chat',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{
+ app.post('/api/platforms/vpzone/chat',withUser,access.channelOnly('owner'),csrf,safe(async(req,res)=>{
   res.json(await vpzoneBotSay(req.channelId,req.body?.message));
  }));
  // Kick's official bot mode uses app credentials, not the Twitch shared-bot identity.
@@ -304,13 +308,13 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   return {ok:true,mode:'oauth-bot'};
  }
  relay.register('kick',kickBotSay);
- app.post('/api/platforms/kick/chat',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{
+ app.post('/api/platforms/kick/chat',withUser,access.channelOnly('owner'),csrf,safe(async(req,res)=>{
   const result=await kickBotSay(req.channelId,req.body.message);res.json(result);
  }));
- app.get('/api/platforms/linked',withUser,access.channelOnly('editor'),(req,res)=>{
+ app.get('/api/platforms/linked',withUser,access.channelOnly('owner'),(req,res)=>{
   res.json({linked:db.prepare('SELECT platform,external_id,display_name FROM platform_oauth WHERE channel=?').all(req.channelId)});
  });
- app.get('/api/platforms/:platform/channel',withUser,access.channelOnly('editor'),safe(async(req,res)=>{
+ app.get('/api/platforms/:platform/channel',withUser,access.channelOnly('owner'),safe(async(req,res)=>{
  const type=req.params.platform;if(!providers[type])return res.sendStatus(404);
  const row=db.prepare('SELECT * FROM platform_oauth WHERE channel=? AND platform=?').get(req.channelId,type);
  if(!row)return res.status(404).json({error:'Platform not connected'});
@@ -339,10 +343,11 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  const linked=db.prepare('SELECT channel FROM platform_oauth WHERE platform=? AND external_id=?').get('kick',broadcaster);
  db.prepare('INSERT INTO platform_delivery(platform,message_id,created_at) VALUES(?,?,?)').run('kick',msg,Date.now());
  if(linked){
- const actor=clean(event.follower?.username||event.sender?.username||event.user?.username||event.subscriber?.username||'');
- const detail=clean(kind+' '+actor);
+ const actor=clean(event.follower?.username||event.sender?.username||event.user?.username||event.subscriber?.username||event.gifter?.username||event.raid?.username||'');
+ const detail=clean([kind,actor,event.amount||event.gift?.amount||event.giftees?.length||''].filter(Boolean).join(' '));
  db.prepare('INSERT INTO platform_events(channel,platform,event_type,actor,detail) VALUES(?,?,?,?,?)').run(linked.channel,'kick',kind,actor,detail);
  db.prepare('INSERT INTO overlay_events(channel,kind,message) VALUES(?,?,?)').run(linked.channel,kind,detail);
+ streamActivity.emit(linked.channel,'kick',kind,actor,detail,msg);
  log(linked.channel,'kick-event',detail);
  if(kind==='chat.message.sent' || kind==='chat.message.created'){
   const body=String(event.content||event.message?.content||'').slice(0,350);
@@ -360,4 +365,40 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  res.sendStatus(204);
  }));
  setImmediate(()=>{for(const row of db.prepare("SELECT channel FROM platform_oauth WHERE platform='kick'").all())void subscribeKickChat(row.channel)});
+ // Poll VPZone's published recent engagement endpoints for channel events.
+ // Stable remote IDs deduplicate results; skip stale history on first deployment.
+ let polling=false;
+ async function pollVpzoneActivity(){
+  if(polling)return;polling=true;
+  try{
+   const accounts=db.prepare("SELECT channel,display_name FROM platform_oauth WHERE platform='vpzone'").all();
+   for(const account of accounts){
+    if(!/^[a-z0-9_-]{2,32}$/i.test(account.display_name))continue;
+    let token;
+    try{token=await refresh(account.channel,'vpzone')}catch(err){log(account.channel,'vpzone-activity-auth',err.message);continue}
+    for(const [endpoint,type] of [['follows/recent','follow'],['subscriptions/recent','subscription'],['raids/recent','raid'],['pixels/recent','donation']]){
+     try{
+      const uri='https://vpzone.tv/api/v1/channels/'+encodeURIComponent(account.display_name)+'/'+endpoint;
+      const response=await fetch(uri,{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(9000)});
+      if(!response.ok){if(response.status!==404&&response.status!==403)log(account.channel,'vpzone-activity-http',type+': '+response.status);continue}
+      const body=await response.json();
+      const list=Array.isArray(body.data)?body.data:Array.isArray(body.data?.items)?body.data.items:Array.isArray(body.items)?body.items:[];
+      for(const item of list.slice(0,40)){
+       const eventId=String(item.id||item.event_id||'');
+       if(!eventId)continue;
+       const at=Date.parse(String(item.created_at||item.timestamp||''));
+       if(Number.isFinite(at)&&Date.now()-at>86400000)continue;
+       const actor=String(item.username||item.user?.username||item.sender?.username||item.from?.username||'');
+       const detail=String(item.amount||item.quantity||item.tier||item.title||'');
+       streamActivity.emit(account.channel,'vpzone',type,actor,detail,account.display_name+':'+endpoint+':'+eventId);
+      }
+     }catch(err){log(account.channel,'vpzone-activity-error',type+': '+err.message)}
+    }
+   }
+  }finally{polling=false}
+ }
+ const activityTimer=setInterval(()=>{void pollVpzoneActivity().catch(err=>console.error('VPZone activity poll',err.message))},60000);
+ activityTimer.unref?.();
+ setImmediate(()=>{void pollVpzoneActivity().catch(err=>console.error('VPZone activity poll',err.message))});
+
 }
