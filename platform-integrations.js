@@ -190,11 +190,11 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   const linked=db.prepare("SELECT display_name FROM platform_oauth WHERE channel=? AND platform='vpzone'").get(channel);
   if(!linked)throw Error('Link your VPZone broadcaster channel first');
   if(!/^[a-z0-9_-]{2,32}$/i.test(linked.display_name))throw Error('Invalid VPZone channel slug');
-  const content=String(text||'').trim().slice(0,450);
+  const content=String(text||'').trim().slice(0,300);
   if(!content)throw Error('Message is empty');
   const token=await vpzoneBotAccessToken();
   const url='https://vpzone.tv/api/v1/channels/'+encodeURIComponent(linked.display_name)+'/chat';
-  const response=await fetch(url,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({content}),signal:AbortSignal.timeout(12000)});
+  const response=await fetch(url,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({message:content}),signal:AbortSignal.timeout(12000)});
   if(!response.ok){
    const reason=(await response.text()).slice(0,280);
    if(response.status===401||response.status===403)throw Error('VPZone bot chat permission denied ('+response.status+'). Reconnect the dedicated bot with chat:write. '+reason);
