@@ -12,12 +12,13 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from model_downloader import install_model, valid_model
+from whisper_models import MODELS, gpu_information, recommended_model, backend, ensure_whisper_model
 
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 ENV = ROOT / ".env"
 DEFAULTS = {"KITSUFLOW_URL": "https://kitsuflowbot.nekosunevr.co.uk",
-            "KITSUFLOW_DEVICE_KEY": "", "KITSUFLOW_VOSK_MODEL": "model",
-            "KITSUFLOW_MIC_DEVICE": "", "KITSUFLOW_STT_ENGINE": "vosk", "KITSUFLOW_WHISPER_MODEL": "base.en"}
+            "KITSUFLOW_DEVICE_KEY": "", "KITSUFLOW_VOSK_MODEL": "model/vask",
+            "KITSUFLOW_MIC_DEVICE": "", "KITSUFLOW_STT_ENGINE": "whisper", "KITSUFLOW_WHISPER_MODEL": "auto"}
 
 def read_env():
     values = DEFAULTS.copy()
@@ -64,8 +65,9 @@ class App:
         self.server = tk.StringVar(value=self.settings["KITSUFLOW_URL"])
         self.key = tk.StringVar(value=self.settings["KITSUFLOW_DEVICE_KEY"])
         self.model = tk.StringVar(value=self.settings["KITSUFLOW_VOSK_MODEL"])
-        self.engine = tk.StringVar(value=self.settings.get("KITSUFLOW_STT_ENGINE", "vosk"))
-        self.whisper_model = tk.StringVar(value=self.settings.get("KITSUFLOW_WHISPER_MODEL", "base.en"))
+        self.engine = tk.StringVar(value=self.settings.get("KITSUFLOW_STT_ENGINE", "whisper"))
+        self.whisper_model = tk.StringVar(value=self.settings.get("KITSUFLOW_WHISPER_MODEL", "auto"))
+        self.gpu = gpu_information()
         self.device = tk.StringVar()
         self.devices = {"System default": None}
         self.inbox = queue.Queue()
@@ -105,14 +107,14 @@ class App:
         row("Device pairing key (from Voice & Clips)", self.key, True)
         ttk.Label(settings, text="Speech recognition engine").pack(anchor="w", pady=(8, 3))
         ttk.Combobox(settings, textvariable=self.engine, values=["vosk", "whisper"], state="readonly").pack(fill="x")
-        ttk.Label(settings, text="Whisper model (tiny.en / base.en / small.en / medium.en)").pack(anchor="w", pady=(8, 3))
-        ttk.Combobox(settings, textvariable=self.whisper_model, values=["tiny.en", "base.en", "small.en", "medium.en"], state="readonly").pack(fill="x")
-        ttk.Label(settings, text="Offline Vosk model folder").pack(anchor="w", pady=(8, 3))
+        ttk.Label(settings, text="Whisper model (auto detects hardware)").pack(anchor="w", pady=(8, 3))
+        ttk.Combobox(settings, textvariable=self.whisper_model, values=["auto", *MODELS], state="readonly").pack(fill="x")
+        ttk.Label(settings, text="Offline Vosk model folder (model/vask)").pack(anchor="w", pady=(8, 3))
         modelrow = ttk.Frame(settings)
         modelrow.pack(fill="x")
         ttk.Entry(modelrow, textvariable=self.model).pack(side="left", fill="x", expand=True)
         ttk.Button(modelrow, text="Browse", command=self.browse_model).pack(side="left", padx=(6, 0))
-        self.download_button = ttk.Button(modelrow, text="Download quality model", command=self.download_model)
+        self.download_button = ttk.Button(modelrow, text="Download selected model", command=self.download_model)
         self.download_button.pack(side="left", padx=(6, 0))
         self.model_progress = ttk.Progressbar(settings, maximum=100, mode="determinate")
         self.model_progress.pack(fill="x", pady=(5, 0))
@@ -139,6 +141,7 @@ class App:
                            bg="#202a39", fg="#e6eefa", insertbackground="#ffffff",
                            relief="flat", padx=10, pady=8)
         self.log.pack(fill="both", expand=True)
+        self.push("GPU: " + (self.gpu["name"] if self.gpu else "No NVIDIA GPU detected") + " • Auto Whisper model: " + recommended_model(self.gpu))
         self.push("Ready. Paste your device key, choose a microphone and start listening.")
 
     def push(self, message):
@@ -191,7 +194,12 @@ class App:
         if not model_path.is_absolute(): model_path = ROOT / model_path
         def worker():
             try:
-                install_model(model_path, lambda p, msg: self.inbox.put(("model_progress", (p, msg))))
+                if values["KITSUFLOW_STT_ENGINE"] == "whisper":
+                    selected = values["KITSUFLOW_WHISPER_MODEL"]
+                    if selected == "auto": selected = recommended_model(self.gpu)
+                    ensure_whisper_model(ROOT, selected, lambda p, msg: self.inbox.put(("model_progress", (p, msg))))
+                else:
+                    install_model(model_path, lambda p, msg: self.inbox.put(("model_progress", (p, msg))))
                 self.inbox.put(("model_done", True))
                 if then_listen is not None:
                     self.inbox.put(("start_after_download", values))
@@ -250,6 +258,16 @@ class App:
             self.push("Full-quality model missing. Downloading it automatically before listening.")
             self.download_model(then_listen=True)
             return
+        if values["KITSUFLOW_STT_ENGINE"] == "whisper":
+            selected = values["KITSUFLOW_WHISPER_MODEL"]
+            if selected == "auto": selected = recommended_model(self.gpu)
+            from whisper_models import cache_dir
+            folder = cache_dir(ROOT, selected)
+            if not (folder / "model.bin").is_file():
+                if self.downloading: return
+                self.push("Downloading Whisper " + selected + " into model/whisper/...")
+                self.download_model(then_listen=True)
+                return
         self.stop.clear()
         self.start_button.config(state="disabled")
         self.stop_button.config(state="normal")
@@ -279,8 +297,19 @@ class App:
                 model = Model(str(model_path))
                 recognizer = KaldiRecognizer(model, 16000)
             else:
-                model = WhisperModel(values["KITSUFLOW_WHISPER_MODEL"], device="cpu", compute_type="int8")
-                send("log", "Whisper loaded (offline after first model download).")
+                selected_model = values["KITSUFLOW_WHISPER_MODEL"]
+                if selected_model == "auto": selected_model = recommended_model(self.gpu)
+                from whisper_models import cache_dir
+                model_folder = cache_dir(ROOT, selected_model)
+                device, precision = backend(self.gpu)
+                try:
+                    model = WhisperModel(str(model_folder), device=device, compute_type=precision)
+                except (RuntimeError, ValueError, OSError) as gpu_error:
+                    if device != "cuda": raise
+                    send("log", "GPU backend unavailable: " + str(gpu_error)[:160] + ". Falling back to CPU.")
+                    device, precision = "cpu", "int8"
+                    model = WhisperModel(str(model_folder), device=device, compute_type=precision)
+                send("log", "Whisper " + selected_model + " loaded on " + device + " (" + precision + ")")
                 segment_buffer = bytearray()
                 last_transcribe = time.monotonic()
             audio = queue.Queue(maxsize=64)

@@ -22,3 +22,7 @@ The GUI can automatically download the official full-size `vosk-model-en-us-0.22
 ## Whisper (optional)
 
 Choose **whisper** in the Speech recognition engine dropdown. Select **tiny.en**, **base.en**, **small.en**, or **medium.en**. Models are downloaded by faster-whisper on first use and cached locally; subsequent recognition runs offline on CPU using int8 quantisation. Larger models increase accuracy and CPU/RAM use, and four-second audio chunks add recognition delay. Vosk remains available for older configurations. Audio never gets uploaded to the KitsuFlowBOT service; only the recognised configured trigger is sent.
+
+### Auto-download, model cache and GPU selection
+
+Whisper models download to `model/whisper/<selected-model>` relative to the application directory. The original Vosk model installs at `model/vask`. The GUI includes `auto` plus manual Whisper sizes `tiny.en`, `base.en`, `small.en`, `medium.en`, and `large-v3`. Automatic selection considers GPU memory and compute capability. A GTX 980 Ti (Maxwell 5.2) defaults to `base.en` running CPU/int8 because newer CTranslate2 CUDA wheels are not reliably compatible; it is not guaranteed GPU-accelerated. CUDA is attempted on supported newer hardware with runtime checks and an initialization fallback to CPU. First download requires internet and disk space; already downloaded models are reused. Large models can substantially increase latency; recognition uses 4-second chunks.

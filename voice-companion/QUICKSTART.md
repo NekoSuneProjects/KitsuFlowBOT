@@ -38,3 +38,7 @@ The high-accuracy model is significantly larger than the mobile/small model and 
 ## Alternative: Whisper speech recognition
 
 In the app, choose **whisper** under Speech recognition engine, then choose a model (start with **base.en** for CPU machines). The first Start downloads the chosen model from Hugging Face; it then runs locally on your CPU. A working internet connection is required for the initial model download. Choose **vosk** to keep the original Vosk flow. Both engines use the same desktop pairing key and clip trigger endpoint.
+
+### Persistent model folders and automatic recommendations
+
+Set the recognition engine to **Whisper** and the model to **auto** to select a suitable model for the detected hardware. Press **Download selected model** or **Start listening** to download the model into `model/whisper/<model-name>`. Vosk uses `model/vask`. On the GTX 980 Ti, automatic selection favours `base.en` with CPU inference for compatibility. The model chooser also permits manual `medium.en` and `large-v3`, but larger models can cause significant delays on older CPUs.
