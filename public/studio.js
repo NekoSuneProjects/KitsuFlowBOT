@@ -68,6 +68,35 @@ async function voice(){
  }
  const triggerLog=card('Other platform voice triggers','Recognition is recorded even when no supported native clip creation API exists.');
  triggerLog.append(table(['Platform','Phrase','Result','When'],extra.history.map(x=>[x.platform,x.phrase,x.result,x.created])));
+ const desktop=card('Desktop Voice Companion','Your PC listens to its microphone locally, then securely asks this dashboard to clip supported live platforms. No OBS required.');
+ if(access.role==='owner'){
+  const companion=await api('/api/voice-companion');
+  const cfg=companion.settings;
+  const phraseLocal=input('Voice trigger',cfg.phrase);
+  const cooldownLocal=input('Cooldown (seconds)',cfg.cooldown,'number');
+  const routing=input('Live platform routing',cfg.routing,'select');
+  for(const [id,label] of [['all','All selected platforms'],['first','First successful native clip']]){const item=e('option',label);item.value=id;routing.el.append(item)}routing.el.value=cfg.routing;
+  const picks={};
+  for(const platform of ['twitch','kick','vpzone'])picks[platform]=input(platform.toUpperCase()+' (native clip API '+(platform==='twitch'?'supported':'unavailable')+')',cfg.platforms.includes(platform),'checkbox');
+  desktop.append(grid('cols2',phraseLocal.node,cooldownLocal.node,routing.node,...Object.values(picks).map(p=>p.node)),
+   actions(btn('Save companion settings',async()=>{
+    await api('/api/voice-companion/settings','POST',{phrase:phraseLocal.value(),routing:routing.value(),cooldown:cooldownLocal.value(),platforms:Object.keys(picks).filter(p=>picks[p].value())});
+    notify('Desktop companion settings saved');await reloadView();
+   },'primary')));
+  const keyOutput=e('div','','description');
+  desktop.append(actions(btn('Pair a PC',async()=>{
+   const x=await api('/api/voice-companion/devices','POST',{label:'My PC'});
+   keyOutput.replaceChildren(e('strong','One-time device key (copy now):'),e('code',x.key));
+   notify('Pairing key created. Keep it private; it is shown only once.');
+  },'primary')),keyOutput);
+  desktop.append(e('h3','Paired computers'));
+  if(!companion.devices.length)desktop.append(e('p','No computers paired yet.','description'));
+  for(const device of companion.devices)desktop.append(h('div','list-row',e('span',device.label+' · '+(device.last_seen||'Never connected')),btn('Revoke',async()=>{await api('/api/voice-companion/devices/'+device.id+'/revoke','POST',{});await reloadView()},'danger')));
+  const desktopHistory=card('Desktop clip results','Twitch creates native clips when live. Kick and VPZone report unsupported, rather than claiming a clip exists.');
+  desktopHistory.append(table(['When','Platform','Result','Details'],companion.history.map(x=>[x.created,x.platform,x.status,x.clip_id||x.detail])));
+  desktop.append(e('p','Companion source: voice-companion/ in the GitHub repository. Install Python, Vosk, sounddevice and a local speech model on the PC.','description'));
+  return h('div','stack',desktop,desktopHistory,v,history,platformCard,triggerLog);
+ }
  return h('div','stack',v,history,platformCard,triggerLog);
 }
 function loyalty(){return wrap(form('Loyalty settings',[['enabled','Enabled','checkbox',!!engagement.loyalty.enabled],['points_per_interval','Points per interval','number',engagement.loyalty.points_per_interval],['interval_minutes','Interval minutes','number',engagement.loyalty.interval_minutes]],'Save loyalty',x=>api('/api/engagement/loyalty','POST',x)),h('section','card',e('h2','Points leaderboard'),table(['Viewer','Points','Estimated active minutes'],creator.leaderboard.map(x=>[x.username,x.points,x.watch_minutes]))))}
