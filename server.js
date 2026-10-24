@@ -68,6 +68,38 @@ const key=ch.id+':'+custom.name,now=Date.now();if(now<(cooldowns.get(key)||0))re
 await say(ch.id,custom.response.replaceAll('{user}',e.chatter_user_name).replaceAll('{channel}',ch.login).replaceAll('{args}',parts.slice(1).join(' ')));
 }catch(err){log(ch.id,'error',err.message)}
 }
+const engagementSockets=new Map();
+function connectEngagement(channel){
+ if(!getAccount(channel))return;
+ const previous=engagementSockets.get(channel);if(previous)previous.close();
+ const ws=new WebSocket('wss://eventsub.wss.twitch.tv/ws');
+ engagementSockets.set(channel,ws);
+ ws.on('message',async raw=>{
+  try{
+   const d=JSON.parse(String(raw)),type=d.metadata?.message_type;
+   if(type==='notification'){
+    const event=d.payload?.event||{},name=d.metadata.subscription_type;
+    streamActivity.emit(channel,'twitch',name,event.user_name||event.from_broadcaster_user_name||event.to_broadcaster_user_name||'',event.message?.text||String(event.bits||event.viewers||event.tier||''),d.metadata.message_id);
+   }else if(type==='session_welcome'){
+    const sid=d.payload.session.id;
+    const config=[
+     ['channel.follow','2',{broadcaster_user_id:channel,moderator_user_id:channel}],
+     ['channel.subscribe','1',{broadcaster_user_id:channel}],
+     ['channel.subscription.gift','1',{broadcaster_user_id:channel}],
+     ['channel.subscription.message','1',{broadcaster_user_id:channel}],
+     ['channel.cheer','1',{broadcaster_user_id:channel}],
+     ['channel.raid','1',{to_broadcaster_user_id:channel}]
+    ];
+    for(const [name,version,condition] of config){
+     try{await api(channel,'eventsub/subscriptions','POST',{type:name,version,condition,transport:{method:'websocket',session_id:sid}})}
+     catch(err){log(channel,'twitch-eventsub-error',name+': '+err.message)}
+    }
+   }
+  }catch(err){log(channel,'twitch-engagement-error',err.message)}
+ });
+ ws.on('close',()=>{if(engagementSockets.get(channel)===ws){const handle=setTimeout(()=>connectEngagement(channel),10000);handle.unref?.()}});
+ ws.on('error',err=>log(channel,'twitch-engagement-ws-error',err.message));
+}
 const sockets=new Map();
 async function connectChat(){const id=botId();if(!id)return;
 const prev=sockets.get('bot');if(prev)prev.close();
@@ -171,4 +203,4 @@ installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,r
 app.get('/dashboard',(req,res)=>{res.set('Cache-Control','no-store, max-age=0');return req.session.uid?res.sendFile(path.resolve('public/dashboard.html')):res.redirect('/login')});
 app.get('/login',(req,res)=>req.session.uid?res.redirect('/dashboard'):res.sendFile(path.resolve('public/login.html')));
 app.get('/api/build-info',(req,res)=>res.set('Cache-Control','no-store').json({version:process.env.GITHUB_SHA||process.env.APP_VERSION||'local',providers:['twitch','kick','vpzone']}));
-app.use(express.static('public',{index:'index.html',redirect:false,setHeaders:(res,file)=>{if(/(?:studio\.js|dashboard\.html)$/.test(file))res.setHeader('Cache-Control','no-store, max-age=0')}}));app.listen(PORT,()=>console.log('KitsuFlowBOT on '+PORT));connectChat();
+app.use(express.static('public',{index:'index.html',redirect:false,setHeaders:(res,file)=>{if(/(?:studio\.js|dashboard\.html)$/.test(file))res.setHeader('Cache-Control','no-store, max-age=0')}}));app.listen(PORT,()=>console.log('KitsuFlowBOT on '+PORT));connectChat();for(const row of db.prepare('SELECT id FROM channels').all())connectEngagement(row.id);
