@@ -233,11 +233,12 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   if(!db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='kick'").get(channel))throw Error('Kick broadcaster is not linked');
   // Kick ignores broadcaster_user_id in application bot mode.
   // Fail closed unless the admin explicitly pins this app token to a single channel.
-  const configuredId=String(process.env.KICK_APP_BOT_CHANNEL_ID||'').trim();
   const linked=db.prepare("SELECT external_id FROM platform_oauth WHERE channel=? AND platform='kick'").get(channel);
-  const count=db.prepare("SELECT COUNT(DISTINCT external_id) AS total FROM platform_oauth WHERE platform='kick'").get().total;
-  if(!configuredId||!/^[0-9]+$/.test(configuredId))throw Error('Kick app bot routing disabled: set KICK_APP_BOT_CHANNEL_ID to the authorised Kick broadcaster ID');
-  if(count!==1||String(linked.external_id)!==configuredId)throw Error('Kick app bot routing refused: this application token is restricted to a single pinned Kick channel, and the selected channel is not its target');
+  if(!linked||!/^[0-9]+$/.test(String(linked.external_id)))throw Error('The selected Twitch creator has no valid Kick broadcaster linked through OAuth');
+  // Application bot delivery is not targetable: Kick ignores broadcaster_user_id for type=bot.
+  // Prevent a shared app token being used as though it selects between different streamers.
+  const distinct=db.prepare("SELECT COUNT(DISTINCT external_id) AS total FROM platform_oauth WHERE platform='kick'").get().total;
+  if(distinct!==1)throw Error('Kick app bot send blocked: several different Kick broadcasters are linked, but Kick bot-mode token routing cannot select a target channel');
   const content=String(text||'').trim().slice(0,500);
   if(!content)throw Error('Empty Kick bot message');
   const send=async()=>{
