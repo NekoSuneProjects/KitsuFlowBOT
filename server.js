@@ -10,6 +10,7 @@ import {installEngagement} from './engagement.js';
 import {installCreator} from './creator.js';
 import {installStreamActivity} from './stream-activity.js';
 import {installVoice} from './voice.js';
+import {installVoiceCompanion} from './voice-companion.js';
 import {installAccess} from './access.js';
 import {installPlatforms} from './platform-integrations.js';
 import {installRelay} from './chat-relay.js';
@@ -199,6 +200,7 @@ app.post('/api/moderate',withUser,access.channelOnly('bot_supervisor'),csrf,safe
 const engagement=installEngagement({app,db,withUser,csrf,safe,say,moderate,log,api});
 const creator=installCreator({app,db,withUser,csrf,safe,log,say,access});
 installVoice({app,db,withUser,csrf,access,api,clip,log,say});
+installVoiceCompanion({app,db,withUser,csrf,access,api,clip,log});
 installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,relay,streamActivity});
 app.get('/dashboard',(req,res)=>{res.set('Cache-Control','no-store, max-age=0');return req.session.uid?res.sendFile(path.resolve('public/dashboard.html')):res.redirect('/login')});
 app.get('/login',(req,res)=>req.session.uid?res.redirect('/dashboard'):res.sendFile(path.resolve('public/login.html')));
