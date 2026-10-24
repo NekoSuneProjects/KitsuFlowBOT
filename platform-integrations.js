@@ -88,7 +88,7 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   if(!account)return;
   const status=(state,detail)=>db.prepare('INSERT INTO kick_chat_status(channel,status,detail,updated_at) VALUES(?,?,?,?) ON CONFLICT(channel) DO UPDATE SET status=excluded.status,detail=excluded.detail,updated_at=excluded.updated_at').run(channel,state,String(detail).slice(0,240),Date.now());
   if(process.env.KICK_WEBHOOK_ENABLED==='false')return status('disabled','KICK_WEBHOOK_ENABLED=false');
-  if(!String(account.scopes).split(/\\s+/).includes('events:subscribe'))return status('missing_scope','Reconnect Kick with events:subscribe');
+  if(!String(account.scopes||'').split(/[\s,]+/).includes('events:subscribe'))return status('missing_scope','Granted scopes: '+String(account.scopes||'(none)')+'. Reconnect Kick with events:subscribe if absent');
   try{
    const token=await refresh(channel,'kick');
    const url='https://api.kick.com/public/v1/events/subscriptions';
