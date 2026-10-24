@@ -143,3 +143,13 @@ The Studio **Connections** page now supports two additional OAuth 2.1 broadcaste
 Do not paste user API keys into the UI or GitHub. Configure server-side OAuth application credentials in an uncommitted `.env` file and restart Docker. Existing Twitch bot/moderation, loyalty and Streamlink clipping stay Twitch-specific until corresponding Kick and VPZone adapters are independently developed and tested.
 
 **Release warning:** these integrations have been code-authored but not end-to-end tested against real Kick/VPZone accounts. Confirm response schemas, registration, refresh, webhook subscriptions and events in a staging environment before production.
+
+## Public homepage and unified creator profile
+
+- `/`: public KitsuFlowBOT information homepage, accessible without signing in.
+- `/login`: Twitch sign-in page. Twitch remains the **single primary sign-in**.
+- `/dashboard`: creator Studio, requires a Twitch session; unauthenticated visitors are redirected to `/login`.
+- Kick and VPZone are **linked streaming accounts**, not separate KitsuFlowBOT login identities. They attach to the active Twitch-owned creator channel and return to `/dashboard` after OAuth.
+- The existing commands, timers, loyalty data, overlays and settings remain associated with the primary Twitch creator channel; connecting an additional provider does not copy or reset them.
+
+**Cross-platform execution limitation:** These shared settings become the source of truth for additional platform adapters, but Kick and VPZone commands are **not yet executed or sent in their respective chats**. Their respective incoming chat events, outgoing messaging and permission mapping must be implemented and tested before cross-platform commands, timers and moderation become active. Kick verified webhook events may populate the common activity/overlay store after Kick event subscriptions are configured. Do not promise that Twitch-only moderation or clipping transfers to other platforms.
