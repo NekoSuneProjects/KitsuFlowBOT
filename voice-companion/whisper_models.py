@@ -30,17 +30,36 @@ def recommended_model(gpu):
     memory=gpu["memory_mb"]
     return "large-v3" if memory>=12000 else "medium.en" if memory>=8000 else "small.en" if memory>=5000 else "base.en"
 
-def backend(gpu):
-    if gpu and gpu["capability"]>=7.0:
-        try:
-            import ctranslate2
-            if ctranslate2.get_cuda_device_count()>0:
-                supported=ctranslate2.get_supported_compute_types("cuda")
-                if "float16" in supported: return "cuda","float16"
-                if "int8" in supported: return "cuda","int8"
-        except Exception:
-            pass
-    return "cpu","int8"
+def backend(gpu, preference="auto"):
+    """Choose inference backend based on what the installed CTranslate2 actually supports.
+
+    Video NVENC encoding capability is unrelated to CUDA Whisper inference.
+    Maxwell/GTX 980 Ti is generally unsupported by current CUDA CTranslate2 wheels.
+    """
+    if preference not in ("auto", "cpu", "cuda"):
+        raise ValueError("Choose auto, cpu or cuda for Whisper backend")
+    if preference == "cpu":
+        return "cpu", "int8"
+    if not gpu or gpu["capability"] < 7.0:
+        if preference == "cuda":
+            raise RuntimeError("This GPU needs a legacy CUDA/CTranslate2 stack for Whisper. Select Auto or CPU.")
+        return "cpu", "int8"
+    try:
+        import ctranslate2
+        if ctranslate2.get_cuda_device_count() > 0:
+            supported = ctranslate2.get_supported_compute_types("cuda")
+            if "float16" in supported:
+                return "cuda", "float16"
+            if "int8_float16" in supported:
+                return "cuda", "int8_float16"
+            if "int8" in supported:
+                return "cuda", "int8"
+    except (RuntimeError, OSError, ImportError) as exc:
+        if preference == "cuda":
+            raise RuntimeError("CUDA Whisper unavailable: " + str(exc)) from exc
+    if preference == "cuda":
+        raise RuntimeError("Current CTranslate2 installation does not support GPU inference.")
+    return "cpu", "int8"
 
 def cache_dir(root,model):
     if model not in REPOS: raise ValueError("Unsupported Whisper model")
