@@ -71,8 +71,14 @@ const duration=ms=>{let seconds=Math.max(0,Math.floor(ms/1000));if(!seconds)retu
 const resolveViewer=async(login,fallback)=>{if(!login)return fallback;const account=await api(botId(),'users?login='+encodeURIComponent(login.replace(/^@/,'')));return account.data?.[0]||null};
 const numberArg=value=>{const n=Number(value);return Number.isSafeInteger(n)&&n>=0&&n<=1000000?n:null};
 const cooldowns=new Map();
+const recentChatters=new Map();
 const allowed=(level,e)=>level==='everyone'||e.badges?.some(b=>b.set_id==='broadcaster'||b.set_id==='moderator')||(level==='subscriber'&&e.badges?.some(b=>b.set_id==='subscriber'));
 async function message(e){const ch=db.prepare('SELECT * FROM channels WHERE id=? AND enabled=1').get(e.broadcaster_user_id);if(!ch||e.chatter_user_id===botId())return;
+if((e.message?.text||'').trim()){
+ const members=recentChatters.get(ch.id)||new Map();recentChatters.set(ch.id,members);
+ members.set(e.chatter_user_id,{login:e.chatter_user_login,last:Date.now()});
+ for(const [id,m] of members)if(Date.now()-m.last>600000)members.delete(id);
+}
 void relay.relay(ch.id,'twitch',e.chatter_user_login,e.message?.text||'',{isBot:false,fragments:e.message?.fragments||[]}).catch(err=>log(ch.id,'relay-error',err.message));
 const value=(e.message?.text||'').trim(),parts=value.split(/\s+/),cmd=parts[0]?.toLowerCase(),isMod=e.badges?.some(b=>b.set_id==='moderator'||b.set_id==='broadcaster');
 if(ch.links&&!isMod&&/https?:\/\/|(?:[a-z0-9-]+\.)+(?:com|net|org|xyz|click|shop|ru|co\.uk)\b/i.test(value)){try{await moderate(ch.id,e.chatter_user_id,60,'Unapproved URL');log(ch.id,'timeout',e.chatter_user_login+' URL')}catch(err){log(ch.id,'error',err.message)}return}
@@ -134,11 +140,11 @@ if(GLOBAL_COMMANDS[globalName]&&isGlobalEnabled(ch.id,globalName)){
   if(!target||amount===null){await say(ch.id,'Usage: !'+globalName+' username amount (addpoints also supports all active chatters)');return}
   if(target.toLowerCase()==='all'){
    if(globalName==='setpoints'){await say(ch.id,'Use an individual viewer with !setpoints.');return}
-   // Active chatters are tracked by the existing loyalty system; not all viewers.
-   const users=db.prepare('SELECT user_id FROM loyalty WHERE channel=? AND watch_minutes>0').all(ch.id);
-   const stmt=db.prepare('UPDATE loyalty SET points=MIN(1000000000,points+?) WHERE channel=? AND user_id=?');
-   const update=db.transaction(()=>{for(const user of users)stmt.run(amount,ch.id,user.user_id)});update();
-   await say(ch.id,'Added '+amount+' points to '+users.length+' tracked chatters.');return
+   const users=[...(recentChatters.get(ch.id)||new Map())].filter(([,m])=>Date.now()-m.last<=600000);
+   const stmt=db.prepare(`INSERT INTO loyalty(channel,user_id,username,points,watch_minutes) VALUES(?,?,?,?,0)
+    ON CONFLICT(channel,user_id) DO UPDATE SET username=excluded.username,points=MIN(1000000000,loyalty.points+excluded.points)`);
+   db.transaction(()=>{for(const [id,m] of users)stmt.run(ch.id,id,m.login,amount)})();
+   await say(ch.id,'Added '+amount+' points to '+users.length+' chatters active in the past 10 minutes.');return
   }
   const viewer=await resolveViewer(target);
   if(!viewer){await say(ch.id,'Viewer not found.');return}
