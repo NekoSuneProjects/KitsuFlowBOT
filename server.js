@@ -71,6 +71,8 @@ const globalListing=channel=>Object.entries(GLOBAL_COMMANDS).map(([name,item])=>
 const duration=ms=>{let seconds=Math.max(0,Math.floor(ms/1000));if(!seconds)return '0 seconds';const out=[];for(const [n,label] of [[31536000,'year'],[86400,'day'],[3600,'hour'],[60,'minute'],[1,'second']]){const value=Math.floor(seconds/n);if(value){out.push(value+' '+label+(value===1?'':'s'));seconds-=value*n}if(out.length>=2)break}return out.join(' ')};
 const resolveViewer=async(login,fallback)=>{if(!login)return fallback;const account=await api(botId(),'users?login='+encodeURIComponent(login.replace(/^@/,'')));return account.data?.[0]||null};
 const numberArg=value=>{const n=Number(value);return Number.isSafeInteger(n)&&n>=0&&n<=1000000?n:null};
+db.exec("CREATE TABLE IF NOT EXISTS scam_protection(channel TEXT PRIMARY KEY,enabled INTEGER NOT NULL DEFAULT 0,action TEXT NOT NULL DEFAULT 'ban')");
+const scamSettings=channel=>db.prepare('SELECT enabled,action FROM scam_protection WHERE channel=?').get(channel)||{enabled:0,action:'ban'};
 const scamFilter=createScamFilter({log});
 const cooldowns=new Map();
 const recentChatters=new Map();
@@ -83,11 +85,13 @@ if((e.message?.text||'').trim()){
 }
 const rawText=e.message?.text||'';
 const bad=scamFilter.match(rawText);
-if(bad&&!e.badges?.some(b=>b.set_id==='broadcaster'||b.set_id==='moderator')){
+if(bad&&scamSettings(ch.id).enabled===1&&!e.badges?.some(b=>b.set_id==='broadcaster'||b.set_id==='moderator')){
  log(ch.id,'scam-domain',e.chatter_user_login+' '+bad.blocked);
  const id=botId(),messageId=String(e.message_id||e.message?.id||'');
  if(id&&messageId){try{await api(id,'moderation/chat?broadcaster_id='+encodeURIComponent(ch.id)+'&moderator_id='+encodeURIComponent(id)+'&message_id='+encodeURIComponent(messageId),'DELETE')}catch(err){log(ch.id,'scam-delete-error',err.message)}}
- try{await moderate(ch.id,e.chatter_user_id,null,'Known scam/phishing domain: '+bad.blocked)}catch(err){log(ch.id,'scam-ban-error',err.message)}
+ const action=scamSettings(ch.id).action;
+ const reason='Known scam/phishing domain: '+bad.blocked;
+ try{await moderate(ch.id,e.chatter_user_id,action==='timeout'?1:null,reason);log(ch.id,'scam-'+action,e.chatter_user_login+': '+reason)}catch(err){log(ch.id,'scam-ban-error',err.message)}
  return;
 }
 void relay.relay(ch.id,'twitch',e.chatter_user_login,rawText,{isBot:false,fragments:e.message?.fragments||[]}).catch(err=>log(ch.id,'relay-error',err.message));
@@ -292,6 +296,14 @@ app.post('/api/admin/bot/device/check',withUser,requireAdmin,csrf,safe(async(req
  const bot=await storeBotToken(body,req.session.uid);
  res.json({status:'connected',bot});
 }));
+app.get('/api/scam-protection',withUser,access.channelOnly('editor'),(req,res)=>res.json({...scamSettings(req.channelId),feed:scamFilter.status(),platforms:{twitch:'supported',kick:'detection_only',vpzone:'detection_only'}}));
+app.post('/api/scam-protection',withUser,access.channelOnly('owner'),csrf,(req,res)=>{
+ const {enabled,action}=req.body||{};
+ if(typeof enabled!=='boolean'||!['ban','timeout'].includes(action))return res.status(400).json({error:'Invalid scam settings'});
+ db.prepare('INSERT INTO scam_protection(channel,enabled,action) VALUES(?,?,?) ON CONFLICT(channel) DO UPDATE SET enabled=excluded.enabled,action=excluded.action').run(req.channelId,enabled?1:0,action);
+ log(req.channelId,'scam-protection',(enabled?'enabled ':'disabled ')+action);
+ res.json({ok:true});
+});
 app.get('/api/admin/scam-feeds',withUser,requireAdmin,(req,res)=>res.json(scamFilter.status()));
 app.get('/api/admin/bot/status',withUser,requireAdmin,(req,res)=>{
  const id=botId(),b=getAccount(id);
