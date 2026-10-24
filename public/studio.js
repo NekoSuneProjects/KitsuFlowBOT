@@ -188,16 +188,19 @@ async function connections(){
  const speech=input('Enable browser TTS',multi.tts_enabled,'checkbox');
  const ttsRate=input('TTS speaking rate (0.5 - 2)',multi.tts_rate??1.08,'number');
  const ttsVolume=input('TTS volume (0 - 1)',multi.tts_volume??1,'number');
- const ttsVoice=input('Browser voice (exact name or leave blank for system default)',multi.tts_voice||'');
+ const ttsProvider=input('TTS provider','browser','select');
+ for(const [id,name] of [['browser','Free browser speech voices'],['kokoro','Self-hosted Kokoro neural voices']])ttsProvider.el.append(new Option(name,id));
+ ttsProvider.el.value=multi.tts_provider||'browser';
+ const ttsVoice=input('Voice name (browser installed name or Kokoro: bf_emma, af_heart, am_michael)',multi.tts_voice||'');
  const ttsLang=input('Voice language (for example en-GB)',multi.tts_lang||'en-GB');
  const ttsPitch=input('Pitch (0 - 2)',multi.tts_pitch??1,'number');
  const ttsMax=input('Maximum TTS message characters (20 - 500)',multi.tts_max_length??300,'number');
  const ttsCooldown=input('Per-viewer TTS cooldown in seconds',multi.tts_cooldown??15,'number');
  const ttsTemplate=input('Spoken message template ({username}, {message}, {platform})',multi.tts_template||'{username} says {message}');
  const ttsPlatforms={};for(const p of ['twitch','kick','vpzone'])ttsPlatforms[p]=input('Read '+p.toUpperCase()+' chat',multi.tts_platforms?.includes(p)??true,'checkbox');
- const voicesHelp=e('p','Free browser voices depend on OBS / system-installed speech voices. To view exact installed names, open your Multi-chat Browser Source in a browser and inspect speechSynthesis.getVoices() in developer tools. Proprietary SleepyChat voices cannot be guaranteed.','description');
+ const voicesHelp=e('p','Browser voices depend on OBS / system-installed speech voices. Kokoro requires an operator-configured KOKORO_TTS_URL and provides named neural voices. To view exact installed names, open your Multi-chat Browser Source in a browser and inspect speechSynthesis.getVoices() in developer tools. Proprietary SleepyChat voices cannot be guaranteed.','description');
  const sourceOut=e('div',multi.configured?'Source configured. Regenerate to get a replacement URL.':'No browser source URL generated yet.','description');
- multiCard.append(grid('cols2',speech.node,ttsRate.node,ttsVolume.node,ttsVoice.node,ttsLang.node,ttsPitch.node,ttsMax.node,ttsCooldown.node,ttsTemplate.node,...Object.values(ttsPlatforms).map(x=>x.node)),voicesHelp,actions(btn('Save TTS option',async()=>{await api('/api/multichat/settings','POST',{tts_enabled:speech.value(),tts_rate:ttsRate.value(),tts_volume:ttsVolume.value(),tts_voice:ttsVoice.value(),tts_lang:ttsLang.value(),tts_pitch:Number(ttsPitch.value()),tts_max_length:Number(ttsMax.value()),tts_cooldown:Number(ttsCooldown.value()),tts_template:ttsTemplate.value(),tts_platforms:Object.keys(ttsPlatforms).filter(p=>ttsPlatforms[p].value())});notify('Multi-chat TTS saved')},'primary'),btn('Generate / rotate OBS URL',async()=>{
+ multiCard.append(grid('cols2',speech.node,ttsProvider.node,ttsRate.node,ttsVolume.node,ttsVoice.node,ttsLang.node,ttsPitch.node,ttsMax.node,ttsCooldown.node,ttsTemplate.node,...Object.values(ttsPlatforms).map(x=>x.node)),voicesHelp,actions(btn('Save TTS option',async()=>{await api('/api/multichat/settings','POST',{tts_enabled:speech.value(),tts_provider:ttsProvider.value(),tts_rate:ttsRate.value(),tts_volume:ttsVolume.value(),tts_voice:ttsVoice.value(),tts_lang:ttsLang.value(),tts_pitch:Number(ttsPitch.value()),tts_max_length:Number(ttsMax.value()),tts_cooldown:Number(ttsCooldown.value()),tts_template:ttsTemplate.value(),tts_platforms:Object.keys(ttsPlatforms).filter(p=>ttsPlatforms[p].value())});notify('Multi-chat TTS saved')},'primary'),btn('Generate / rotate OBS URL',async()=>{
   const x=await api('/api/multichat/source','POST',{});
   const url=location.origin+x.url;
   sourceOut.replaceChildren(e('span','Keep these OBS browser URLs private:'),h('div','list-row',e('span','Multi-chat'),link(url,url)),h('div','list-row',e('span','Game & title'),link(location.origin+x.game_url,location.origin+x.game_url)),h('div','list-row',e('span','Activity Feed'),link(location.origin+x.activity_url,location.origin+x.activity_url)));
