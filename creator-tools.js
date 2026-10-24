@@ -10,7 +10,8 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
  db.exec(`CREATE TABLE IF NOT EXISTS creator_ai_settings(channel TEXT PRIMARY KEY,endpoint TEXT NOT NULL,model TEXT NOT NULL,key_encrypted TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS multichat_sources(channel TEXT PRIMARY KEY,secret_hash TEXT NOT NULL,tts_enabled INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS multichat_messages(id INTEGER PRIMARY KEY AUTOINCREMENT,channel TEXT NOT NULL,platform TEXT NOT NULL,sender TEXT NOT NULL,content TEXT NOT NULL,created TEXT DEFAULT CURRENT_TIMESTAMP);
- CREATE INDEX IF NOT EXISTS multichat_channel_idx ON multichat_messages(channel,id DESC);`);
+ CREATE INDEX IF NOT EXISTS multichat_channel_idx ON multichat_messages(channel,id DESC);
+ CREATE TABLE IF NOT EXISTS stream_overlay_metadata(channel TEXT NOT NULL,platform TEXT NOT NULL,title TEXT NOT NULL,game TEXT NOT NULL,updated TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(channel,platform));`);
  const owner=[withUser,access.channelOnly('owner'),csrf];
  app.get('/api/creator-ai',withUser,access.channelOnly('owner'),(req,res)=>{
   const row=db.prepare('SELECT endpoint,model,key_encrypted FROM creator_ai_settings WHERE channel=?').get(req.channelId);
@@ -49,7 +50,7 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
  app.post('/api/multichat/source',...owner,(req,res)=>{
   const secret=crypto.randomBytes(32).toString('base64url');
   db.prepare('INSERT INTO multichat_sources(channel,secret_hash,tts_enabled) VALUES(?,?,0) ON CONFLICT(channel) DO UPDATE SET secret_hash=excluded.secret_hash').run(req.channelId,hash(secret));
-  res.set('Cache-Control','no-store').json({url:'/multichat/'+secret,warning:'Copy now. Regenerating invalidates your old OBS browser URL.'});
+  res.set('Cache-Control','no-store').json({url:'/multichat/'+secret,game_url:'/obs/game/'+secret,activity_url:'/obs/activity/'+secret,warning:'Copy now. Regenerating invalidates your old OBS browser URL.'});
  });
  app.post('/api/multichat/settings',...owner,(req,res)=>{
   if(typeof req.body?.tts_enabled!=='boolean')return res.status(400).json({error:'Invalid TTS option'});
@@ -65,6 +66,26 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
  app.get('/multichat/:key',source,(req,res)=>{
   res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'none'; object-src 'none'; frame-ancestors *"});
   res.sendFile('multichat.html',{root:'public'});
+ });
+ app.get('/obs/game/:key',source,(req,res)=>{
+  res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});
+  res.sendFile('obs-game.html',{root:'public'});
+ });
+ app.get('/obs/activity/:key',source,(req,res)=>{
+  res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});
+  res.sendFile('obs-activity.html',{root:'public'});
+ });
+ app.get('/api/obs/game/:key',source,(req,res)=>{
+  res.set('Cache-Control','no-store').json({platforms:db.prepare('SELECT platform,title,game,updated FROM stream_overlay_metadata WHERE channel=? ORDER BY platform').all(req.source.channel)});
+ });
+ app.get('/api/obs/activity/:key',source,(req,res)=>{
+  const after=Math.max(0,Math.min(2147483647,Number(req.query.after)||0));
+  const messages=db.prepare('SELECT id,platform,event_type,actor,detail,created FROM stream_activity WHERE channel=? AND id>? ORDER BY id ASC LIMIT 60').all(req.source.channel,after);
+  res.set('Cache-Control','no-store').json({events:messages});
+ });
+ app.get('/api/obs/activity',withUser,access.channelOnly('editor'),(req,res)=>{
+  const after=Math.max(0,Math.min(2147483647,Number(req.query.after)||0));
+  res.set('Cache-Control','no-store').json({events:db.prepare('SELECT id,platform,event_type,actor,detail,created FROM stream_activity WHERE channel=? AND id>? ORDER BY id ASC LIMIT 100').all(req.channelId,after)});
  });
  app.get('/api/multichat/feed/:key',source,(req,res)=>{
   const after=Math.max(0,Number(req.query.after)||0);
