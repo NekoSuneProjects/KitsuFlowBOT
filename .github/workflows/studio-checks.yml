@@ -16,6 +16,10 @@ jobs:
           node-version: '22'
       - name: Verify JavaScript syntax
         run: |
+          node --check access.js
+          node --check server.js
+          node --check chat-relay.js
+          node --check public/invite.js
           node --check public/studio.js
           node --check platform-integrations.js
           node --check voice.js
