@@ -365,4 +365,40 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  res.sendStatus(204);
  }));
  setImmediate(()=>{for(const row of db.prepare("SELECT channel FROM platform_oauth WHERE platform='kick'").all())void subscribeKickChat(row.channel)});
+ // Poll VPZone's published recent engagement endpoints for channel events.
+ // Stable remote IDs deduplicate results; skip stale history on first deployment.
+ let polling=false;
+ async function pollVpzoneActivity(){
+  if(polling)return;polling=true;
+  try{
+   const accounts=db.prepare("SELECT channel,display_name FROM platform_oauth WHERE platform='vpzone'").all();
+   for(const account of accounts){
+    if(!/^[a-z0-9_-]{2,32}$/i.test(account.display_name))continue;
+    let token;
+    try{token=await refresh(account.channel,'vpzone')}catch(err){log(account.channel,'vpzone-activity-auth',err.message);continue}
+    for(const [endpoint,type] of [['follows/recent','follow'],['subscriptions/recent','subscription'],['raids/recent','raid'],['pixels/recent','donation']]){
+     try{
+      const uri='https://vpzone.tv/api/v1/channels/'+encodeURIComponent(account.display_name)+'/'+endpoint;
+      const response=await fetch(uri,{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(9000)});
+      if(!response.ok){if(response.status!==404&&response.status!==403)log(account.channel,'vpzone-activity-http',type+': '+response.status);continue}
+      const body=await response.json();
+      const list=Array.isArray(body.data)?body.data:Array.isArray(body.data?.items)?body.data.items:Array.isArray(body.items)?body.items:[];
+      for(const item of list.slice(0,40)){
+       const eventId=String(item.id||item.event_id||'');
+       if(!eventId)continue;
+       const at=Date.parse(String(item.created_at||item.timestamp||''));
+       if(Number.isFinite(at)&&Date.now()-at>86400000)continue;
+       const actor=String(item.username||item.user?.username||item.sender?.username||item.from?.username||'');
+       const detail=String(item.amount||item.quantity||item.tier||item.title||'');
+       streamActivity.emit(account.channel,'vpzone',type,actor,detail,account.display_name+':'+endpoint+':'+eventId);
+      }
+     }catch(err){log(account.channel,'vpzone-activity-error',type+': '+err.message)}
+    }
+   }
+  }finally{polling=false}
+ }
+ const activityTimer=setInterval(()=>{void pollVpzoneActivity().catch(err=>console.error('VPZone activity poll',err.message))},60000);
+ activityTimer.unref?.();
+ setImmediate(()=>{void pollVpzoneActivity().catch(err=>console.error('VPZone activity poll',err.message))});
+
 }
