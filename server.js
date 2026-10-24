@@ -165,7 +165,7 @@ if(GLOBAL_COMMANDS[globalName]&&isGlobalEnabled(ch.id,globalName)){
  }
 }
 
-if(cmd==='!clip'){if(!isMod)return;const c=await clip(ch.id);await say(ch.id,'Clip requested (60 seconds): https://clips.twitch.tv/'+c.id);return}
+if(cmd==='!clip'){if(!isMod)return;try{const c=await clip(ch.id);await say(ch.id,'Clip requested (up to 60 seconds): https://clips.twitch.tv/'+c.id)}catch(err){log(ch.id,'clip-error',err.message);await say(ch.id,'Clip failed. Ensure the shared bot is connected with clips:edit and the channel is live.')}return}
 if((cmd==='!ban'||cmd==='!timeout')&&isMod){const target=parts[1];if(!target)return;const uid=await lookup(target);const seconds=cmd==='!timeout'?Math.max(1,Math.min(1209600,Number(parts[2])||600)):null;await moderate(ch.id,uid,seconds,parts.slice(cmd==='!timeout'?3:2).join(' ')||'Moderator command');log(ch.id,cmd,target);await say(ch.id,target+' '+(seconds?'timed out':'banned'));return}
 if(cmd==='!uptime'){const s=await api(ch.id,'streams?user_id='+ch.id);await say(ch.id,s.data?.[0]?'Live since '+new Date(s.data[0].started_at).toLocaleString():'Stream is offline');return}
 const custom=db.prepare('SELECT * FROM commands WHERE channel=? AND name=?').get(ch.id,cmd.slice(1));if(!custom||engagement.reserved.has(cmd.slice(1))||!allowed(custom.level,e))return;
