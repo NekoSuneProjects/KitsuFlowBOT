@@ -358,7 +358,7 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
      if(!linked)throw Error('Platform not linked');
      const token=await refresh(req.channelId,platform);
      if(platform==='kick'){
-      if(!/^\\d+$/.test(chosen.id))throw Error('Invalid Kick category ID');
+      if(!/^[0-9]+$/.test(chosen.id))throw Error('Invalid Kick category ID');
       await providerRequest('https://api.kick.com/public/v1/channels',token,'PATCH',{stream_title:title,category_id:Number(chosen.id)});
      }else{
       // The VPZone channel slug is returned by /me; username alone is not guaranteed to be slug.
