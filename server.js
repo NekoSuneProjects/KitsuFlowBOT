@@ -65,7 +65,7 @@ const GLOBAL_COMMANDS={
 };
 db.exec(`CREATE TABLE IF NOT EXISTS global_command_settings(channel TEXT NOT NULL,name TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(channel,name));
 CREATE TABLE IF NOT EXISTS channel_supermods(channel TEXT NOT NULL,user_id TEXT NOT NULL,login TEXT NOT NULL,PRIMARY KEY(channel,user_id));`);
-const isGlobalEnabled=(channel,name)=>db.prepare('SELECT enabled FROM global_command_settings WHERE channel=? AND name=?').get(channel,name)?.enabled!==0;
+const isGlobalEnabled=(channel,name)=>{const row=db.prepare('SELECT enabled FROM global_command_settings WHERE channel=? AND name=?').get(channel,name);return row?row.enabled===1:GLOBAL_COMMANDS[name]?.level!=='supermod'};
 const globalListing=channel=>Object.entries(GLOBAL_COMMANDS).map(([name,item])=>({name,...item,enabled:isGlobalEnabled(channel,name)}));
 const duration=ms=>{let seconds=Math.max(0,Math.floor(ms/1000));if(!seconds)return '0 seconds';const out=[];for(const [n,label] of [[31536000,'year'],[86400,'day'],[3600,'hour'],[60,'minute'],[1,'second']]){const value=Math.floor(seconds/n);if(value){out.push(value+' '+label+(value===1?'':'s'));seconds-=value*n}if(out.length>=2)break}return out.join(' ')};
 const resolveViewer=async(login,fallback)=>{if(!login)return fallback;const account=await api(botId(),'users?login='+encodeURIComponent(login.replace(/^@/,'')));return account.data?.[0]||null};
