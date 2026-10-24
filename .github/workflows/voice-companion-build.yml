@@ -80,8 +80,8 @@ jobs:
             echo "::error::Release must point to desktopapp history."
             exit 1
           }
-          VERSION=$(tr -d '\\r\\n' < voice-companion/VERSION)
-          [[ "$VERSION" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]] || {
+          VERSION=$(head -n 1 voice-companion/VERSION | tr -d '[:space:]')
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]] || {
             echo "::error::Invalid VERSION. Expected 1.0.0 or 1.0.0-beta.1"
             exit 1
           }
@@ -102,7 +102,7 @@ jobs:
           cd release-assets
           for platform in windows-x64 linux-amd64; do
             test -s "KitsuFlowVoiceCompanion-$platform/KitsuFlowVoiceCompanion$([[ "$platform" == windows-x64 ]] && echo '.exe' || true)"
-            (cd "KitsuFlowVoiceCompanion-$platform" && zip -q -r "../KitsuFlowVoiceCompanion-${GITHUB_REF_NAME}-$platform.zip" .)
+            (cd "KitsuFlowVoiceCompanion-$platform" && zip -q -r "../KitsuFlowVoiceCompanion-${{ steps.version.outputs.tag }}-$platform.zip" .)
           done
           sha256sum KitsuFlowVoiceCompanion-*.zip > SHA256SUMS.txt
       - name: Publish GitHub Release with binaries
@@ -112,7 +112,7 @@ jobs:
         run: |
           TAG="\${{ steps.version.outputs.tag }}"
           PRERELEASE_FLAG=()
-          if [[ "$TAG" == *-*-* ]]; then PRERELEASE_FLAG=(--prerelease); fi
+          if [[ "$TAG" == *-*.*-* ]]; then PRERELEASE_FLAG=(--prerelease); fi
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $TAG already exists. Bump voice-companion/VERSION for a new release."
             exit 0
