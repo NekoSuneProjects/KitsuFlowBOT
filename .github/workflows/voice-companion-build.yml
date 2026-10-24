@@ -1,7 +1,7 @@
 name: Build Voice Companion Desktop Apps
 on:
   push:
-    branches: [main]
+    branches: [desktopapp]
     paths:
       - 'voice-companion/**'
       - '.github/workflows/voice-companion-build.yml'

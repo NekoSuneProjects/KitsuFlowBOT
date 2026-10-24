@@ -1,8 +1,0 @@
-FROM python:3.12-slim
-ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir streamlink==7.6.0 vosk==0.3.45
-WORKDIR /worker
-COPY voice-worker.py /worker/voice-worker.py
-USER 65534:65534
-CMD ["python","/worker/voice-worker.py"]
