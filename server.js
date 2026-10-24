@@ -203,7 +203,7 @@ app.post('/api/moderate',withUser,access.channelOnly('bot_supervisor'),csrf,safe
 const engagement=installEngagement({app,db,withUser,csrf,safe,say,moderate,log,api});
 const creator=installCreator({app,db,withUser,csrf,safe,log,say,access});
 installVoice({app,db,withUser,csrf,access,api,clip,log,say});
-installVoiceCompanion({app,db,withUser,csrf,access,api,clip,log});
+installVoiceCompanion({app,db,withUser,csrf,access,api,clip,log,say});
 const platformRuntime=installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,relay,streamActivity,twitchApi:api});
 creatorTools.setProviderStatus(channel=>{
  const bot=sockets.get('bot');
