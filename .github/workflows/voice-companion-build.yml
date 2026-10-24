@@ -43,7 +43,7 @@ jobs:
       - name: Compile native desktop executable
         shell: bash
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name KitsuFlowVoiceCompanion --collect-all vosk --collect-all sounddevice --collect-all faster_whisper --collect-all ctranslate2 --collect-all tokenizers voice-companion/companion.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name KitsuFlowVoiceCompanion --collect-all vosk --collect-all sounddevice --collect-all faster_whisper --collect-all ctranslate2 --collect-all tokenizers --collect-all huggingface_hub voice-companion/companion.py
       - name: Prepare distribution
         shell: bash
         run: |
