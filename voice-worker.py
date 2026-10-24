@@ -21,7 +21,9 @@ def call(path,data=None):
 def monitor(channel,login,phrase,platform,url,stop):
     source=None;decoder=None
     try:
-        if not re.fullmatch(r"[a-zA-Z0-9_-]{2,32}",login):return\n        if platform not in ("twitch","kick","vpzone"):return\n        if platform != "twitch" and url != ("https://kick.com/" if platform == "kick" else "https://vpzone.tv/")+login:return
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{2,32}",login):return
+        if platform not in ("twitch","kick","vpzone"):return
+        if platform != "twitch" and url != ("https://kick.com/" if platform == "kick" else "https://vpzone.tv/")+login:return
         source=subprocess.Popen(["streamlink","--loglevel","error","--stdout",("https://www.twitch.tv/"+login if platform == "twitch" else url),"worst"],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
         decoder=subprocess.Popen(["ffmpeg","-nostdin","-hide_banner","-loglevel","error","-i","pipe:0","-vn","-ac","1","-ar","16000","-f","s16le","pipe:1"],stdin=source.stdout,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
         source.stdout.close()
