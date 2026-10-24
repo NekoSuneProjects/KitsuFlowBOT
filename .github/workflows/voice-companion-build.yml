@@ -39,11 +39,11 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y python3-tk libportaudio2 libasound2-dev
       - name: Install Python packaging requirements
-        run: python -m pip install --upgrade pip pyinstaller "vosk>=0.3.45,<0.4" "sounddevice>=0.4.6,<1"
+        run: python -m pip install --upgrade pip pyinstaller "vosk>=0.3.45,<0.4" "sounddevice>=0.4.6,<1" "faster-whisper>=1.1,<2" "numpy>=1.24,<3"
       - name: Compile native desktop executable
         shell: bash
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name KitsuFlowVoiceCompanion --collect-all vosk --collect-all sounddevice voice-companion/companion.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name KitsuFlowVoiceCompanion --collect-all vosk --collect-all sounddevice --collect-all faster_whisper --collect-all ctranslate2 --collect-all tokenizers voice-companion/companion.py
       - name: Prepare distribution
         shell: bash
         run: |

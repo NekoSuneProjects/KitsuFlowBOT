@@ -34,3 +34,7 @@ Twitch native clip creation works when a linked broadcaster is live and authoris
 On first **Start listening**, the companion downloads the official full-size English Vosk `vosk-model-en-us-0.22` (~1.8 GB compressed) automatically if a valid model is not installed. You can also click **Download quality model** in the GUI. Download progress is shown in the window; interrupted downloads leave a `.zip.part` file and resume where the server supports HTTP range requests. Download and extraction need multiple gigabytes of free disk space.
 
 The high-accuracy model is significantly larger than the mobile/small model and can require substantial RAM (Vosk says large models may use up to 16 GB). Make sure your PC has adequate memory. The model downloads once, then remains cached under the chosen `KITSUFLOW_VOSK_MODEL` directory. If you want a custom model, choose an already-installed valid Vosk model folder.
+
+## Alternative: Whisper speech recognition
+
+In the app, choose **whisper** under Speech recognition engine, then choose a model (start with **base.en** for CPU machines). The first Start downloads the chosen model from Hugging Face; it then runs locally on your CPU. A working internet connection is required for the initial model download. Choose **vosk** to keep the original Vosk flow. Both engines use the same desktop pairing key and clip trigger endpoint.
