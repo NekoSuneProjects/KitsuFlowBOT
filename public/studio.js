@@ -34,6 +34,23 @@ async function activity(){
  const c=card('Activity feed','Follows, subscriptions, gifted subscriptions, raids, Twitch cheers, Kick Kicks and supported VPZone engagement events. Internal bot logs are shown in Admin Panel.');
  if(!events.length)c.append(e('div','No stream engagement events received yet. Events appear once the platform subscriptions are connected.','empty'));
  else c.append(table(['When','Platform','Event','Viewer','Details'],events.map(x=>[x.created,x.platform.toUpperCase(),x.event_type.replaceAll('_',' '),x.actor||'—',x.detail||'—'])));
+ if(access.role==='owner'){
+  const config=await api('/api/stream-announcements');
+  const settings=card('Platform-local event announcements','Announcements stay on the originating platform only. Turn on specific event types and customise the reply. Unsupported event types are not shown.');
+  const names={follow:'New follower',subscription:'New subscription',subscription_gift:'Gifted subscriptions',cheer:'Twitch Bits',kicks:'Kick Kicks',raid:'Raid'};
+  for(const platform of ['twitch','kick','vpzone']){
+   settings.append(e('h3',platform.toUpperCase()));
+   for(const entry of config.settings.filter(x=>x.platform===platform)){
+    const toggle=input('Post '+(names[entry.event_type]||entry.event_type)+' in '+platform+' chat',entry.enabled,'checkbox');
+    const template=input('Message - '+(names[entry.event_type]||entry.event_type),entry.template);
+    settings.append(grid('cols2',toggle.node,template.node),actions(btn('Save '+platform+' '+entry.event_type,async()=>{
+     await api('/api/stream-announcements','POST',{platform,event_type:entry.event_type,enabled:toggle.value(),template:template.value()});
+     notify('Announcement preferences saved for '+platform);
+    },'primary')));
+   }
+  }
+  return h('div','stack',c,settings);
+ }
  return c;
 }
 function reports(){return grid('stats',stat('Total members',creator.stats.members,'♙','Chat-based activity'),stat('Loyalty points',creator.stats.points,'✧','Current issued balances'),stat('Redemptions',creator.stats.redemptions,'▣','Store requests'),stat('Queue',creator.queue.length,'☷','Waiting viewers'))}
