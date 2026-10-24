@@ -31,11 +31,42 @@ if(!state.channel.enabled)v.append(banner('Your channel bot is currently disable
 v.append(wrap(h('section','card',e('h2','Recent activity'),table(['When','Event','Details'],creator.activity.slice(0,8).map(x=>[x.created,x.event,x.detail])),actions(btn('View activity feed',()=>show('activity')))),h('section','card',e('h2','Channel health'),h('div','list-row',e('span','Streamer account'),e('strong','Connected')),h('div','list-row',e('span','Shared Twitch bot'),e('strong',state.bot?'@'+state.bot.login:'Not linked')),h('div','list-row',e('span','Bot enabled'),e('strong',state.channel.enabled?'Yes':'No')),h('div','list-row',e('span','Your access'),e('strong',state.role)))));return v}
 async function activity(){
  const events=await api('/api/stream-activity');
- const c=card('Activity feed','Follows, subscriptions, gifted subscriptions, raids, Twitch cheers, Kick Kicks and supported VPZone engagement events. Internal bot logs are shown in Admin Panel.');
- if(!events.length)c.append(e('div','No stream engagement events received yet. Events appear once the platform subscriptions are connected.','empty'));
+ const c=card('Activity feed','Live follows, subscriptions, gifts, Bits, Kicks and raids, where supported. Announcement settings below are owner-only and post only to the originating chat.');
+ if(!events.length)c.append(e('div','No stream engagement events received yet. Events appear once platform subscriptions are connected.','empty'));
  else c.append(table(['When','Platform','Event','Viewer','Details'],events.map(x=>[x.created,x.platform.toUpperCase(),x.event_type.replaceAll('_',' '),x.actor||'—',x.detail||'—'])));
  c.dataset.liveActivity='true';
- return c;
+ if(access.role!=='owner')return c;
+ const config=await api('/api/stream-announcements');
+ const settings=card('Platform-local event announcements','Each toggle controls only its own platform. Announcements are disabled by default; customise the message and save each event.');
+ const names={follow:'New follower',subscription:'New subscription',subscription_gift:'Gifted subscriptions',cheer:'Twitch Bits',kicks:'Kick Kicks',raid:'Raid'};
+ for(const platform of ['twitch','kick','vpzone']){
+  const group=h('section','kf-settings-section',e('h3',platform.toUpperCase()));
+  for(const entry of config.settings.filter(x=>x.platform===platform)){
+   const toggle=input('Post '+(names[entry.event_type]||entry.event_type)+' to '+platform+' chat',entry.enabled,'checkbox');
+   const template=input('Announcement message',entry.template);
+   group.append(h('div','kf-result',grid('cols2',toggle.node,template.node),actions(btn('Save '+(names[entry.event_type]||entry.event_type),async()=>{
+    await api('/api/stream-announcements','POST',{platform,event_type:entry.event_type,enabled:toggle.value(),template:template.value()});
+    notify(platform.toUpperCase()+' '+entry.event_type+' announcement saved');
+   },'primary'))));
+  }
+  settings.append(group);
+ }
+ return h('div','stack',c,settings);
+}
+// All feature panels keep a consistent header, icon and accent treatment.
+function enhanceCreatorPanels(root){
+ const icons=new Map([['Unified creator profile','◉'],['Set title and game on linked platforms','▤'],['AI stream title helper','✦'],['Multi-chat OBS browser source','◈'],['Linked streaming channels','⇄']]);
+ root.querySelectorAll('.card').forEach(c=>{
+  const heading=c.querySelector(':scope > h2');
+  if(!heading||!icons.has(heading.textContent)||heading.parentElement.classList.contains('kf-panel-heading'))return;
+  const description=heading.nextElementSibling?.classList.contains('description')?heading.nextElementSibling:null;
+  const title=heading.textContent,wrapper=h('div','kf-panel-heading',e('span',icons.get(title),'kf-panel-icon'));
+  const copy=h('div','');
+  copy.append(heading);
+  if(description)copy.append(description);
+  wrapper.append(copy);
+  c.prepend(wrapper);
+ });
 }
 function reports(){return grid('stats',stat('Total members',creator.stats.members,'♙','Chat-based activity'),stat('Loyalty points',creator.stats.points,'✧','Current issued balances'),stat('Redemptions',creator.stats.redemptions,'▣','Store requests'),stat('Queue',creator.queue.length,'☷','Waiting viewers'))}
 function commands(){return wrap(form('Create custom command',[['name','Command name (! without prefix)'],['response','Bot response'],['cooldown','Cooldown in seconds','number',10],['level','Permission','options',['everyone','subscriber','moderator']]],'Save command',x=>api('/api/commands','POST',x)),h('section','card',e('h2','Saved commands'),table(['Command','Response','Level','Action'],state.commands.map(x=>['!'+x.name,x.response,x.level,btn('Delete',async()=>{await api('/api/commands/'+encodeURIComponent(x.name),'DELETE');await reloadView()},'danger')]))))}
@@ -108,7 +139,7 @@ function quotes(){return wrap(form('Save a quote',[['text','Quote text']],'Add q
 function overlays(){return wrap(form('New OBS overlay',[['title','Overlay name'],['kind','Widget','options',['alerts','leaderboard','queue','ticker']]],'Create overlay',x=>api('/api/creator/overlay','POST',x)),h('section','card',e('h2','Browser source widgets'),table(['Widget','Type','Actions'],creator.overlays.map(x=>[x.title,x.kind,actions(link('Open source ↗','/overlay/'+x.public_key),btn('Test',async()=>{await api('/api/creator/overlay/test','POST',{id:x.id,message:'KitsuFlowBOT test notification'});notify('Test event sent')}))]))))}
 async function connections(){
  const c=card('Unified creator profile','Twitch is your primary login. Connect Kick and VPZone to this same workspace. Your saved settings and custom commands belong to this creator account.');
- c.append(h('div','list-row',e('span','Twitch broadcaster'),e('strong','@'+state.channel.login)),h('div','list-row',e('span','Shared bot'),e('strong',state.bot?'@'+state.bot.login:'Not connected')));
+ c.append(h('div','kf-connection-surface',h('div','kf-identity',e('div','Twitch broadcaster','kf-identity-label'),e('strong','@'+state.channel.login)),h('div','kf-identity',e('div','Shared bot','kf-identity-label'),e('strong',state.bot?'@'+state.bot.login:'Not connected'))));
  const enabled=input('Enable bot for my channel',!!state.channel.enabled,'checkbox'),links=input('Timeout unapproved links',!!state.channel.links,'checkbox');
  c.append(grid('cols2',enabled.node,links.node),actions(btn('Save Twitch settings',async()=>{await api('/api/settings','POST',{enabled:enabled.value(),links:links.value()});await reloadView()},'primary')));
  const metadata=card('Set title and game on linked platforms','Search each platform native game catalog, select its own category, then apply the same stream title to all selected platforms.');
@@ -118,7 +149,7 @@ async function connections(){
  const output=e('div','','stack');
  const chosen={},checkboxes={};
  for(const platform of ['twitch','kick','vpzone'])checkboxes[platform]=input('Update '+platform.toUpperCase(),true,'checkbox');
- metadata.append(grid('cols2',titleInput.node,gameInput.node),actions(...Object.values(checkboxes).map(x=>x.node)),actions(btn('Find platform games',async()=>{
+ metadata.append(grid('cols2',titleInput.node,gameInput.node),h('div','kf-settings-section',e('div','Publish to platforms','kf-settings-section-label'),h('div','kf-platforms',...Object.values(checkboxes).map(x=>x.node))),h('div','actions kf-editor-actions',btn('Find platform games',async()=>{
   const data=await api('/api/stream-metadata/categories?q='+encodeURIComponent(gameInput.value()));
   lookup.replaceChildren();
   for(const platform of ['twitch','kick','vpzone']){
@@ -196,7 +227,9 @@ async function connections(){
  const feed=card('Cross-platform activity','Verified provider events appear here when event delivery is configured. Twitch remains the primary dashboard login.');
  const events=await api('/api/platform-events').catch(()=>[]);
  feed.append(table(['Platform','Type','When'],events.slice(0,30).map(x=>[x.platform,x.event_type,x.created])));
- return h('div','stack',c,providerCard,relayCard,relayLog,feed);
+ const layout=h('div','stack',c,providerCard,relayCard,relayLog,feed);
+ enhanceCreatorPanels(layout);
+ return layout;
 }
 function channel(){const c=card('Channel configuration','Owner-only channel credentials and access');c.append(h('div','list-row',e('span','Account ID'),e('strong',access.account_id)),h('div','list-row',e('span','Your role'),e('strong',access.role)));if(access.role==='owner'){c.append(actions(btn('Create API token (reports:read)',async()=>{const x=await api('/api/access/tokens','POST',{scopes:['reports:read'],days:7});const out=e('textarea');out.className='key-block';out.value=x.token;out.readOnly=true;out.style.width='100%';out.rows=5;c.append(out);notify('Copy the token now; it will not be shown again')}),btn('Rotate overlay integration token',async()=>{if(!confirm('Rotate overlay integration credential?'))return;const x=await api('/api/access/overlay-token/rotate','POST');const out=e('textarea');out.value=x.token;out.readOnly=true;out.rows=4;out.className='key-block';out.style.width='100%';c.append(out)})))}return c}
 function team(){const c=card('Team & invitation links','Create an expiring, one-use invite. Recipients must log into Twitch before accepting it.');if(access.role!=='owner'){c.append(e('p','Only channel owners can manage invitations.','muted'));return c}const r=selector('Role',access.role==='owner'?['editor','bot_supervisor','full_control']:['editor','bot_supervisor'],'editor'),days=input('Valid for days',1,'number');c.append(grid('cols2',r.node,days.node),actions(btn('Generate invitation',async()=>{const x=await api('/api/access/invite','POST',{role:r.value(),days:days.value()});const out=e('textarea');out.className='key-block';out.value=x.link;out.readOnly=true;out.rows=3;out.style.width='100%';c.append(out);notify('Copy your invitation URL')},'primary')),e('h3','Team members'),table(['User ID','Role','Remove'],access.members.map(x=>[x.user_id,x.role,btn('Remove',async()=>{await api('/api/access/members/'+x.user_id+'/remove','POST');await reloadView()},'danger')])));return c}
