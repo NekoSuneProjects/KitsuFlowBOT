@@ -19,6 +19,8 @@ jobs:
           node --check public/studio.js
           node --check platform-integrations.js
           node --check voice.js
+          node --check creator-tools.js
+          node --check public/multichat.js
           node --check voice-companion.js
           python3 -m py_compile voice-worker.py
       - name: Verify required Studio assets
