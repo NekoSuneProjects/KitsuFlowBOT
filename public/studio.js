@@ -172,22 +172,13 @@ async function connections(){
   for(const item of x.results)output.append(e('div',item.platform.toUpperCase()+': '+item.status+(item.error?' — '+item.error:' — '+item.category),'description'));
  },'primary')),lookup,output);
  c.append(metadata);
- const aiCard=card('AI stream title helper','Use your own OpenAI-compatible chat-completions URL and model. Suggestions only fill the text box; nothing is published without clicking Update selected platforms.');
- const aiState=await api('/api/creator-ai').catch(()=>({endpoint:'',model:'',hasKey:false}));
- const endpoint=input('Chat completions URL (HTTPS)',aiState.source==='server'?'':aiState.endpoint||'');
- const model=input('Model ID',aiState.source==='server'?'':aiState.model||'');
- const apiKey=input('API key (leave empty to keep saved key)','');
- apiKey.el.type='password';
+ const aiCard=card('AI stream title helper','Describe your stream in a few words. KitsuFlowBOT uses its server-configured AI service to suggest a catchy, searchable title. Review the suggestion before publishing.');
  const aiContext=input('Title idea or vibe','Chill gameplay, welcoming to newcomers');
- if(aiState.serverConfigured&&aiState.source==='server')aiCard.append(e('div','Using server-configured AI title model: '+aiState.model+'. No account API key required. Optional: save a channel-specific provider below to override it.','description'));
- aiCard.append(grid('cols2',endpoint.node,model.node,apiKey.node,aiContext.node),actions(btn('Save AI provider',async()=>{
-  await api('/api/creator-ai','POST',{endpoint:endpoint.value(),model:model.value(),apiKey:apiKey.value()});
-  notify('AI provider saved securely');
- },'primary'),btn('Suggest a stream title',async()=>{
+ aiCard.append(aiContext.node,actions(btn('Suggest a stream title',async()=>{
   const x=await api('/api/creator-ai/suggest','POST',{game:gameInput.value(),context:aiContext.value()});
   titleInput.el.value=x.title;
-  notify('Suggested title filled in. Review before publishing.');
- })));
+  notify('Suggested title added to the Stream title field. Review it before publishing.');
+ },'primary')));
  c.append(aiCard);
  const multiCard=card('Multi-chat OBS browser source','Read combined Twitch, Kick and VPZone chat in OBS without cross-posting. The private source URL acts as a secret, and browser speech synthesis can read messages aloud.');
  const multi=await api('/api/multichat/settings').catch(()=>({configured:false,tts_enabled:false}));
