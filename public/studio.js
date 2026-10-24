@@ -86,9 +86,9 @@ async function connections(){
    }else row.append(e('span','Not configured','pill'));
    providerCard.append(row);
  }
- const botChat=card('Kick application bot chat','Send messages with Kick’s official application bot identity. This does not use your Twitch bot account.');
+ const botChat=card('Kick dedicated bot chat','Send as the separately authorised Kick bot account from Admin Panel. Your linked Kick broadcaster identity is never used for replies.');
  const msg=input('Test message','KitsuFlowBOT connected to Kick');
- botChat.append(msg.node,actions(btn('Send via Kick bot',async()=>{await api('/api/platforms/kick/chat','POST',{message:msg.value()});notify('Kick bot message submitted')},'primary')));
+ botChat.append(msg.node,actions(btn('Send via Kick bot',async()=>{await api('/api/platforms/kick/chat','POST',{message:msg.value()});notify('Dedicated Kick bot message sent')},'primary')));
  const vpTest=card('VPZone dedicated bot chat','Test posting through your VPZone bot account connected in Admin Panel (chat:write required).');
  const vpMsg=input('VPZone test message','Hello from KitsuFlowBOT!');
  vpTest.append(vpMsg.node,actions(btn('Send via VPZone bot',async()=>{await api('/api/platforms/vpzone/chat','POST',{message:vpMsg.value()});notify('VPZone bot message sent')},'primary')));
