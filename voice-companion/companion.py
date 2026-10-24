@@ -576,9 +576,16 @@ class App:
                         text = " ".join(" ".join(piece.text.lower().split()) for piece in chunks).strip()
                         if text: send("log", "Whisper heard: " + text[:120])
                     phrase = config.get("phrase", "clip it")
-                    # Match full phrase as words anywhere in speech, not unrelated substrings.
-                    phrase_pattern = r"(?<!\\w)" + r"\\s+".join(re.escape(part) for part in phrase.lower().split()) + r"(?!\\w)"
-                    if not re.search(phrase_pattern, text, re.IGNORECASE) or now - last < config.get("cooldown", 45):
+                    # Whisper inserts punctuation and may put words around the phrase.
+                    # Compare token sequences so "oh my god, clip it." matches "clip it",
+                    # while "clipboard" does not. Also tolerate punctuation between words.
+                    spoken_words = re.findall(r"\b\w+\b", text.casefold())
+                    trigger_words = re.findall(r"\b\w+\b", str(phrase).casefold())
+                    matched = bool(trigger_words) and any(
+                        spoken_words[i:i + len(trigger_words)] == trigger_words
+                        for i in range(len(spoken_words) - len(trigger_words) + 1)
+                    )
+                    if not matched or now - last < config.get("cooldown", 45):
                         continue
                     last = now
                     send("log", "Voice trigger recognised: " + phrase)
