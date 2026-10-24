@@ -230,25 +230,18 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   return token.access_token;
  }
  async function kickBotSay(channel,text){
-  const linked=db.prepare("SELECT external_id FROM platform_oauth WHERE channel=? AND platform='kick'").get(channel);
-  if(!linked)throw Error('Connect your Kick broadcaster channel first');
-  const bot=db.prepare("SELECT external_id,display_name FROM platform_bot_accounts WHERE platform='kick'").get();
-  if(!bot)throw Error('A dedicated Kick bot is required. Connect it in Admin Panel.');
-  if(String(bot.external_id)===String(linked.external_id))throw Error('Kick bot and broadcaster must be different accounts');
-  const broadcasterId=Number(linked.external_id);
-  if(!Number.isSafeInteger(broadcasterId)||broadcasterId<1)throw Error('Invalid linked Kick broadcaster ID');
+  if(!db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='kick'").get(channel))throw Error('Kick broadcaster is not linked');
   const content=String(text||'').trim().slice(0,500);
-  if(!content)throw Error('Empty chat message');
-  const payload={content,type:'user',broadcaster_user_id:broadcasterId};
-  const post=async(token)=>{
-   const response=await fetch('https://api.kick.com/public/v1/chat',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(12000)});
-   return {ok:response.ok,status:response.status,body:response.ok?'':(await response.text()).slice(0,300)};
+  if(!content)throw Error('Empty Kick bot message');
+  const send=async()=>{
+   const response=await fetch('https://api.kick.com/public/v1/chat',{method:'POST',headers:{Authorization:'Bearer '+await kickAppToken(),'Content-Type':'application/json'},body:JSON.stringify({content,type:'bot'}),signal:AbortSignal.timeout(12000)});
+   return {status:response.status,ok:response.ok,detail:response.ok?'':(await response.text()).slice(0,300)};
   };
-  let outcome=await post(await kickBotAccessToken());
-  if(outcome.status===401)outcome=await post(await kickBotAccessToken(true));
-  if(!outcome.ok)throw Error('Kick dedicated bot @'+bot.display_name+' chat failed ('+outcome.status+'): '+outcome.body+'. Check bot chat:write access and permissions in the broadcaster channel.');
-  log(channel,'kick-bot-message','dedicated-bot @'+bot.display_name);
-  return {ok:true,mode:'dedicated-bot',bot:bot.display_name};
+  let result=await send();
+  if(result.status===401){appToken=null;result=await send()}
+  if(!result.ok)throw Error('Kick application bot failed ('+result.status+'): '+result.detail);
+  log(channel,'kick-bot-message','application-bot');
+  return {ok:true,mode:'application-bot'};
  }
  relay.register('kick',kickBotSay);
  app.post('/api/platforms/kick/chat',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{
