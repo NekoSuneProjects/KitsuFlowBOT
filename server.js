@@ -52,6 +52,24 @@ async function say(channel,message){const id=botId();if(!id)throw Error('Connect
 async function lookup(login){const id=botId();if(!id)throw Error('Bot not connected');const u=await api(id,'users?login='+encodeURIComponent(login.replace(/^@/,'')));if(!u.data?.[0])throw Error('User not found');return u.data[0].id}
 async function moderate(channel,user,duration,reason){const id=botId();if(!id)throw Error('Connect bot first');if(id===user||channel===user)throw Error('Cannot moderate bot or broadcaster');await api(id,'moderation/bans?broadcaster_id='+channel+'&moderator_id='+id,'POST',{data:{user_id:user,...(duration?{duration}:{}),reason:reason||'KitsuFlowBOT moderation'}})}
 async function clip(channel){const data=await api(channel,'clips?broadcaster_id='+channel,'POST');const c=data.data?.[0];if(!c)throw Error('No live clip returned');log(channel,'clip',c.edit_url||c.id);return c}
+const GLOBAL_COMMANDS={
+ commands:{level:'everyone',description:'Show this channel\'s public commands page'},
+ accountage:{level:'everyone',description:'Show Twitch account age'},
+ followage:{level:'everyone',description:'Show how long a viewer has followed'},
+ watchtime:{level:'everyone',description:'Show estimated chat-based watch time'},
+ so:{level:'moderator',description:'Shout out a Twitch streamer'},
+ addpoints:{level:'supermod',description:'Give loyalty points to a viewer or active chatters'},
+ setpoints:{level:'supermod',description:'Set a viewer\'s loyalty points'},
+ setgame:{level:'supermod',description:'Change stream category/game'},
+ settitle:{level:'supermod',description:'Change stream title'}
+};
+db.exec(`CREATE TABLE IF NOT EXISTS global_command_settings(channel TEXT NOT NULL,name TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(channel,name));
+CREATE TABLE IF NOT EXISTS channel_supermods(channel TEXT NOT NULL,user_id TEXT NOT NULL,login TEXT NOT NULL,PRIMARY KEY(channel,user_id));`);
+const isGlobalEnabled=(channel,name)=>db.prepare('SELECT enabled FROM global_command_settings WHERE channel=? AND name=?').get(channel,name)?.enabled!==0;
+const globalListing=channel=>Object.entries(GLOBAL_COMMANDS).map(([name,item])=>({name,...item,enabled:isGlobalEnabled(channel,name)}));
+const duration=ms=>{let seconds=Math.max(0,Math.floor(ms/1000));if(!seconds)return '0 seconds';const out=[];for(const [n,label] of [[31536000,'year'],[86400,'day'],[3600,'hour'],[60,'minute'],[1,'second']]){const value=Math.floor(seconds/n);if(value){out.push(value+' '+label+(value===1?'':'s'));seconds-=value*n}if(out.length>=2)break}return out.join(' ')};
+const resolveViewer=async(login,fallback)=>{if(!login)return fallback;const account=await api(botId(),'users?login='+encodeURIComponent(login.replace(/^@/,'')));return account.data?.[0]||null};
+const numberArg=value=>{const n=Number(value);return Number.isSafeInteger(n)&&n>=0&&n<=1000000?n:null};
 const cooldowns=new Map();
 const allowed=(level,e)=>level==='everyone'||e.badges?.some(b=>b.set_id==='broadcaster'||b.set_id==='moderator')||(level==='subscriber'&&e.badges?.some(b=>b.set_id==='subscriber'));
 async function message(e){const ch=db.prepare('SELECT * FROM channels WHERE id=? AND enabled=1').get(e.broadcaster_user_id);if(!ch||e.chatter_user_id===botId())return;
@@ -62,6 +80,74 @@ try{
 if(await engagement.onMessage(ch,e,value,parts,isMod))return;
 if(await creator.onMessage(ch,e,value,parts,isMod))return;
 if(!cmd?.startsWith('!'))return;
+const globalName=cmd.slice(1);
+if(GLOBAL_COMMANDS[globalName]&&isGlobalEnabled(ch.id,globalName)){
+ const isOwner=e.chatter_user_id===ch.id;
+ const supermod=isOwner||Boolean(db.prepare('SELECT 1 FROM channel_supermods WHERE channel=? AND user_id=?').get(ch.id,e.chatter_user_id));
+ const required=GLOBAL_COMMANDS[globalName].level;
+ if(required==='moderator'&&!isMod||required==='supermod'&&!supermod)return;
+ const key=ch.id+':global:'+globalName,now=Date.now();
+ if(now<(cooldowns.get(key)||0))return;
+ cooldowns.set(key,now+10000);
+ const requestedLogin=(parts[1]||'').replace(/^@/,'');
+ if(globalName==='commands'){await say(ch.id,'Commands for '+ch.login+': '+BASE+'/commands/'+encodeURIComponent(ch.login));return}
+ if(globalName==='accountage'||globalName==='followage'||globalName==='watchtime'){
+  const viewer=requestedLogin?await resolveViewer(requestedLogin):{id:e.chatter_user_id,login:e.chatter_user_login,created_at:null};
+  if(!viewer){await say(ch.id,'Twitch user not found.');return}
+  const who=viewer.login||e.chatter_user_login;
+  if(globalName==='watchtime'){
+   const points=db.prepare('SELECT watch_minutes FROM loyalty WHERE channel=? AND user_id=?').get(ch.id,viewer.id);
+   await say(ch.id,who+' has spent '+duration((points?.watch_minutes||0)*60000)+' watching '+ch.login+' (estimated from chat activity).');return
+  }
+  if(globalName==='accountage'){
+   const user=viewer.created_at?viewer:(await api(botId(),'users?id='+encodeURIComponent(viewer.id))).data?.[0];
+   await say(ch.id,user?.created_at?who+' created their Twitch account '+duration(Date.now()-Date.parse(user.created_at))+' ago.':'Account age unavailable.');return
+  }
+  try{
+   const response=await api(ch.id,'channels/followers?broadcaster_id='+encodeURIComponent(ch.id)+'&user_id='+encodeURIComponent(viewer.id));
+   const follow=response.data?.[0]?.followed_at;
+   await say(ch.id,follow?who+' has followed '+ch.login+' for '+duration(Date.now()-Date.parse(follow))+'.':who+' is not currently following '+ch.login+'.');
+  }catch(err){await say(ch.id,'Follow age unavailable: reconnect Twitch with follower permissions.')}
+  return
+ }
+ if(globalName==='so'){
+  if(!requestedLogin){await say(ch.id,'Usage: !so username');return}
+  const user=await resolveViewer(requestedLogin);
+  if(!user){await say(ch.id,'Streamer not found.');return}
+  await say(ch.id,'Go check out '+user.display_name+' at https://www.twitch.tv/'+user.login+' — show them some love!');return
+ }
+ if(globalName==='settitle'||globalName==='setgame'){
+  const value=parts.slice(1).join(' ').trim();
+  if(!value||value.length>140){await say(ch.id,'Usage: !'+globalName+' '+(globalName==='settitle'?'new title':'game name'));return}
+  if(globalName==='settitle'){
+   await api(ch.id,'channels?broadcaster_id='+ch.id,'PATCH',{title:value});
+  }else{
+   const games=await api(ch.id,'games?name='+encodeURIComponent(value));
+   const game=games.data?.find(g=>g.name.toLowerCase()===value.toLowerCase())||games.data?.[0];
+   if(!game){await say(ch.id,'Game/category not found.');return}
+   await api(ch.id,'channels?broadcaster_id='+ch.id,'PATCH',{game_id:game.id});
+  }
+  await say(ch.id,'Stream '+(globalName==='settitle'?'title':'game')+' updated.');return
+ }
+ if(globalName==='addpoints'||globalName==='setpoints'){
+  const amount=numberArg(parts[2]);const target=parts[1]?.replace(/^@/,'');
+  if(!target||amount===null){await say(ch.id,'Usage: !'+globalName+' username amount (addpoints also supports all active chatters)');return}
+  if(target.toLowerCase()==='all'){
+   if(globalName==='setpoints'){await say(ch.id,'Use an individual viewer with !setpoints.');return}
+   // Active chatters are tracked by the existing loyalty system; not all viewers.
+   const users=db.prepare('SELECT user_id FROM loyalty WHERE channel=? AND watch_minutes>0').all(ch.id);
+   const stmt=db.prepare('UPDATE loyalty SET points=MIN(1000000000,points+?) WHERE channel=? AND user_id=?');
+   const update=db.transaction(()=>{for(const user of users)stmt.run(amount,ch.id,user.user_id)});update();
+   await say(ch.id,'Added '+amount+' points to '+users.length+' tracked chatters.');return
+  }
+  const viewer=await resolveViewer(target);
+  if(!viewer){await say(ch.id,'Viewer not found.');return}
+  db.prepare(`INSERT INTO loyalty(channel,user_id,username,points,watch_minutes) VALUES(?,?,?,?,0)
+    ON CONFLICT(channel,user_id) DO UPDATE SET username=excluded.username,points=${globalName==='setpoints'?'excluded.points':'MIN(1000000000,loyalty.points+excluded.points)'}`).run(ch.id,viewer.id,viewer.login,amount);
+  await say(ch.id,viewer.login+' points '+(globalName==='setpoints'?'set to ':'increased by ')+amount+'.');return
+ }
+}
+
 if(cmd==='!clip'){if(!isMod)return;const c=await clip(ch.id);await say(ch.id,'Clip created: https://clips.twitch.tv/'+c.id);return}
 if((cmd==='!ban'||cmd==='!timeout')&&isMod){const target=parts[1];if(!target)return;const uid=await lookup(target);const seconds=cmd==='!timeout'?Math.max(1,Math.min(1209600,Number(parts[2])||600)):null;await moderate(ch.id,uid,seconds,parts.slice(cmd==='!timeout'?3:2).join(' ')||'Moderator command');log(ch.id,cmd,target);await say(ch.id,target+' '+(seconds?'timed out':'banned'));return}
 if(cmd==='!uptime'){const s=await api(ch.id,'streams?user_id='+ch.id);await say(ch.id,s.data?.[0]?'Live since '+new Date(s.data[0].started_at).toLocaleString():'Stream is offline');return}
@@ -193,10 +279,14 @@ app.get('/api/admin/bot/status',withUser,requireAdmin,(req,res)=>{
  const id=botId(),b=getAccount(id);
  res.json({admins_configured:adminIds.size,bot:b?{id:b.id,login:b.login,scopes:JSON.parse(b.scopes||'[]')}:null,connected:Boolean(b)});
 });
+app.get('/api/commands/global',withUser,(req,res)=>res.json({commands:globalListing(req.channelId),supermods:db.prepare('SELECT login,user_id FROM channel_supermods WHERE channel=? ORDER BY login').all(req.channelId)}));
+app.post('/api/commands/global',withUser,access.channelOnly('editor'),csrf,(req,res)=>{const name=String(req.body.name||'').toLowerCase();if(!GLOBAL_COMMANDS[name]||typeof req.body.enabled!=='boolean')return res.status(400).json({error:'Invalid global command setting'});db.prepare('INSERT INTO global_command_settings(channel,name,enabled) VALUES(?,?,?) ON CONFLICT(channel,name) DO UPDATE SET enabled=excluded.enabled').run(req.channelId,name,req.body.enabled?1:0);res.json({ok:true})});
+app.post('/api/commands/supermod',withUser,access.channelOnly('owner'),csrf,safe(async(req,res)=>{const login=String(req.body.login||'').trim().replace(/^@/,'');if(!/^[a-zA-Z0-9_]{3,25}$/.test(login))throw Error('Enter a Twitch username');const user=await resolveViewer(login);if(!user)throw Error('Twitch user not found');if(req.body.enabled===true)db.prepare('INSERT INTO channel_supermods(channel,user_id,login) VALUES(?,?,?) ON CONFLICT(channel,user_id) DO UPDATE SET login=excluded.login').run(req.channelId,user.id,user.login);else db.prepare('DELETE FROM channel_supermods WHERE channel=? AND user_id=?').run(req.channelId,user.id);res.json({ok:true})}));
+app.get('/commands/:login',(req,res)=>{const login=String(req.params.login||'').toLowerCase();const ch=db.prepare('SELECT id,login FROM channels WHERE LOWER(login)=?').get(login);if(!ch)return res.status(404).send('Channel not found');const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const custom=db.prepare('SELECT name,level,response FROM commands WHERE channel=? ORDER BY name').all(ch.id);const globals=globalListing(ch.id).filter(x=>x.enabled);const lines=[...globals.map(x=>({name:x.name,level:x.level,description:x.description})),...custom.map(x=>({name:x.name,level:x.level,description:x.response}))];res.type('html').send('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+escape(ch.login)+' commands • KitsuFlowBOT</title><style>body{font:16px system-ui;background:#0b111b;color:#f2f7fd;margin:0;padding:32px}main{max-width:850px;margin:auto}h1{color:#48e4c2}section{padding:16px;border:1px solid #304354;background:#151f2d;border-radius:12px;margin:10px 0}small{color:#a9bdca}</style><main><h1>'+escape(ch.login)+' commands</h1><p>Enabled global and custom commands for this channel.</p>'+lines.map(x=>'<section><strong>!'+escape(x.name)+'</strong> <small>('+escape(x.level)+')</small><p>'+escape(x.description)+'</p></section>').join('')+'</main></html>')});
 app.get('/api/state',withUser,(req,res)=>{const ch=db.prepare('SELECT * FROM channels WHERE id=?').get(req.channelId);res.json({channel:ch,role:access.role(req.session.uid,req.channelId),isOperator:isOperator(req.session.uid),bot:(()=>{const b=getAccount(botId());return b?{id:b.id,login:b.login}:null})(),commands:db.prepare('SELECT * FROM commands WHERE channel=? ORDER BY name').all(req.channelId),logs:db.prepare('SELECT * FROM logs WHERE channel=? ORDER BY id DESC LIMIT 30').all(req.channelId)})});
 app.post('/api/settings',withUser,access.channelOnly('owner'),csrf,(req,res)=>{if(req.body.enabled===true&&!botId())return res.status(409).json({error:'Shared bot is not connected yet'});db.prepare('UPDATE channels SET enabled=?,links=? WHERE id=?').run(req.body.enabled===true?1:0,req.body.links===true?1:0,req.channelId);connectChat();res.json({ok:true})});
 app.post('/api/channel/disconnect',withUser,access.channelOnly('owner'),csrf,(req,res)=>{const id=req.channelId;db.prepare('UPDATE channels SET enabled=0 WHERE id=?').run(id);db.prepare('DELETE FROM accounts WHERE id=? AND id != ?').run(id,botId()||'');connectChat();req.session.destroy(()=>res.json({ok:true}))});
-app.post('/api/commands',withUser,access.channelOnly('editor'),csrf,(req,res)=>{const name=String(req.body.name||'').toLowerCase().replace(/^!/,'');const response=String(req.body.response||'');if(!/^[a-z0-9_]{1,32}$/.test(name)||['clip','ban','timeout','uptime','points','top','addquote','quote','counter'].includes(name)||!response||response.length>450||!['everyone','subscriber','moderator'].includes(req.body.level))return res.status(400).json({error:'Invalid command'});db.prepare('INSERT INTO commands(channel,name,response,cooldown,level) VALUES(?,?,?,?,?) ON CONFLICT(channel,name) DO UPDATE SET response=excluded.response,cooldown=excluded.cooldown,level=excluded.level').run(req.channelId,name,response,Math.max(0,Math.min(3600,Number(req.body.cooldown)||0)),req.body.level);res.json({ok:true})});
+app.post('/api/commands',withUser,access.channelOnly('editor'),csrf,(req,res)=>{const name=String(req.body.name||'').toLowerCase().replace(/^!/,'');const response=String(req.body.response||'');if(!/^[a-z0-9_]{1,32}$/.test(name)||['clip','ban','timeout','uptime','points','top','addquote','quote','counter',...Object.keys(GLOBAL_COMMANDS)].includes(name)||!response||response.length>450||!['everyone','subscriber','moderator'].includes(req.body.level))return res.status(400).json({error:'Invalid command'});db.prepare('INSERT INTO commands(channel,name,response,cooldown,level) VALUES(?,?,?,?,?) ON CONFLICT(channel,name) DO UPDATE SET response=excluded.response,cooldown=excluded.cooldown,level=excluded.level').run(req.channelId,name,response,Math.max(0,Math.min(3600,Number(req.body.cooldown)||0)),req.body.level);res.json({ok:true})});
 app.delete('/api/commands/:name',withUser,access.channelOnly('editor'),csrf,(req,res)=>{db.prepare('DELETE FROM commands WHERE channel=? AND name=?').run(req.channelId,req.params.name);res.json({ok:true})});
 app.post('/api/clip',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{const c=await clip(req.channelId);res.json(c)}));
 app.post('/api/moderate',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{if(!['ban','timeout'].includes(req.body.action))throw Error('Invalid action');const uid=await lookup(String(req.body.user||''));const seconds=req.body.action==='timeout'?Math.max(1,Math.min(1209600,Number(req.body.seconds)||600)):null;await moderate(req.channelId,uid,seconds,'Dashboard moderation');log(req.channelId,req.body.action,req.body.user);res.json({ok:true})}));
