@@ -201,7 +201,7 @@ const engagement=installEngagement({app,db,withUser,csrf,safe,say,moderate,log,a
 const creator=installCreator({app,db,withUser,csrf,safe,log,say,access});
 installVoice({app,db,withUser,csrf,access,api,clip,log,say});
 installVoiceCompanion({app,db,withUser,csrf,access,api,clip,log});
-installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,relay,streamActivity});
+installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,relay,streamActivity,twitchApi:api});
 app.get('/dashboard',(req,res)=>{res.set('Cache-Control','no-store, max-age=0');return req.session.uid?res.sendFile(path.resolve('public/dashboard.html')):res.redirect('/login')});
 app.get('/login',(req,res)=>req.session.uid?res.redirect('/dashboard'):res.sendFile(path.resolve('public/login.html')));
 app.get('/api/build-info',(req,res)=>res.set('Cache-Control','no-store').json({version:process.env.GITHUB_SHA||process.env.APP_VERSION||'local',providers:['twitch','kick','vpzone']}));
