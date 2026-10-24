@@ -78,7 +78,7 @@ async function connections(){
  const providerCard=card('Linked streaming channels','Kick and VPZone attach to your Twitch-based profile. You stay signed in with Twitch, and manage them from one dashboard. Twitch bot chat commands currently work only on Twitch; connected-provider chat adapters will reuse these shared settings when supported.');
  let result;try{result=await api('/api/platforms')}catch(err){providerCard.append(e('div','Could not load Kick/VPZone connections: '+err.message,'empty'));result={platforms:[]}}
  for(const provider of result.platforms.filter(x=>x.platform!=='twitch')){
-   const row=h('div','list-row',h('div','',e('strong',provider.platform==='kick'?'Kick':'VPZone'),e('div',provider.connection?'Linked: '+provider.connection.display_name+' · '+(provider.platform==='vpzone'?(runtime?.vpzone?.chat_connected?'Chat connected':'Chat disconnected'):'Webhook subscription not active'):provider.configured?'Ready for OAuth connection':'Developer app credentials required','tiny')));
+   const row=h('div','list-row',h('div','',e('strong',provider.platform==='kick'?'Kick':'VPZone'),e('div',provider.connection?'Linked: '+provider.connection.display_name+' · '+(provider.platform==='vpzone'?(runtime?.vpzone?.chat_connected?'Chat connected':'Chat disconnected'):(runtime?.kick?.subscription_active?'Chat subscribed':'Chat subscription pending')):provider.configured?'Ready for OAuth connection':'Developer app credentials required','tiny')));
    if(provider.connection){
      row.append(actions(btn('View channel',async()=>{const data=await api('/api/platforms/'+provider.platform+'/channel');notify(provider.platform+' channel information loaded');console.info(data)}),btn('Disconnect',async()=>{if(!confirm('Disconnect '+provider.platform+'?'))return;await api('/api/platforms/'+provider.platform+'/disconnect','POST');await reloadView()},'danger')));
    }else if(provider.configured){
@@ -86,19 +86,6 @@ async function connections(){
    }else row.append(e('span','Not configured','pill'));
    providerCard.append(row);
  }
- const kickReader=card('Kick incoming chat','Kick commands require a chat.message.sent event subscription and a reachable signed webhook.');
- kickReader.append(e('div',runtime?.kick?.subscription_active?'Subscription registered: '+(runtime.kick.detail||'ready'):'Subscription not confirmed: '+(runtime?.kick?.detail||'Not checked'),'description'),actions(btn('Register / retry Kick chat subscription',async()=>{const x=await api('/api/platforms/kick/subscribe','POST',{});notify('Kick subscription: '+x.status+' — '+x.detail);await reloadView()},'primary')));
- const kickScopes=await api('/api/platforms/kick/scopes').catch(()=>null);
- if(kickScopes?.linked){
-  kickReader.append(e('div','Requested Kick scopes: '+kickScopes.requested.join(', '),'tiny'),e('div','Stored Kick OAuth scopes: '+(kickScopes.stored.join(', ')||'(none)'),'tiny'));
-  if(kickScopes.requiresReauthorisation)kickReader.append(e('div','Your existing Kick OAuth connection does not contain events:subscribe. Updating .env does not modify an existing OAuth grant.','empty'),actions(link('Reauthorise Kick broadcaster','/auth/platform/kick','primary')));
- }
- const botChat=card('Kick application bot chat','Send using Kick developer application bot mode (type: bot). This is not the streamer or a separate user account.');
- const msg=input('Test message','KitsuFlowBOT connected to Kick');
- botChat.append(msg.node,actions(btn('Send via Kick bot',async()=>{await api('/api/platforms/kick/chat','POST',{message:msg.value()});notify('Kick application bot message sent')},'primary')));
- const vpTest=card('VPZone dedicated bot chat','Test posting through your VPZone bot account connected in Admin Panel (chat:write required).');
- const vpMsg=input('VPZone test message','Hello from KitsuFlowBOT!');
- vpTest.append(vpMsg.node,actions(btn('Send via VPZone bot',async()=>{await api('/api/platforms/vpzone/chat','POST',{message:vpMsg.value()});notify('VPZone bot message sent')},'primary')));
  const relayData=await api('/api/relay').catch(()=>({routes:[],history:[]}));
  const relayCard=card('Cross-platform chat relay','Relay is off by default. Enable only directions you want. Messages are labelled by source and protected against loops.');
  for(const [source,target] of [['twitch','kick'],['kick','twitch'],['twitch','vpzone'],['vpzone','twitch'],['kick','vpzone'],['vpzone','kick']]){
@@ -112,7 +99,7 @@ async function connections(){
  const feed=card('Cross-platform activity','Verified provider events appear here when event delivery is configured. Twitch remains the primary dashboard login.');
  const events=await api('/api/platform-events').catch(()=>[]);
  feed.append(table(['Platform','Type','When'],events.slice(0,30).map(x=>[x.platform,x.event_type,x.created])));
- return h('div','stack',c,providerCard,kickReader,botChat,vpTest,relayCard,relayLog,feed);
+ return h('div','stack',c,providerCard,relayCard,relayLog,feed);
 }
 function channel(){const c=card('Channel configuration','Owner-only channel credentials and access');c.append(h('div','list-row',e('span','Account ID'),e('strong',access.account_id)),h('div','list-row',e('span','Your role'),e('strong',access.role)));if(access.role==='owner'){c.append(actions(btn('Create API token (reports:read)',async()=>{const x=await api('/api/access/tokens','POST',{scopes:['reports:read'],days:7});const out=e('textarea');out.className='key-block';out.value=x.token;out.readOnly=true;out.style.width='100%';out.rows=5;c.append(out);notify('Copy the token now; it will not be shown again')}),btn('Rotate overlay integration token',async()=>{if(!confirm('Rotate overlay integration credential?'))return;const x=await api('/api/access/overlay-token/rotate','POST');const out=e('textarea');out.value=x.token;out.readOnly=true;out.rows=4;out.className='key-block';out.style.width='100%';c.append(out)})))}return c}
 function team(){const c=card('Team & invitation links','Create an expiring, one-use invite. Recipients must log into Twitch before accepting it.');if(!['owner','full_control'].includes(access.role)){c.append(e('p','Only owners and Full Control staff can invite users.','muted'));return c}const r=selector('Role',access.role==='owner'?['editor','bot_supervisor','full_control']:['editor','bot_supervisor'],'editor'),days=input('Valid for days',1,'number');c.append(grid('cols2',r.node,days.node),actions(btn('Generate invitation',async()=>{const x=await api('/api/access/invite','POST',{role:r.value(),days:days.value()});const out=e('textarea');out.className='key-block';out.value=x.link;out.readOnly=true;out.rows=3;out.style.width='100%';c.append(out);notify('Copy your invitation URL')},'primary')),e('h3','Team members'),table(['User ID','Role','Remove'],access.members.map(x=>[x.user_id,x.role,btn('Remove',async()=>{await api('/api/access/members/'+x.user_id+'/remove','POST');await reloadView()},'danger')])));return c}
