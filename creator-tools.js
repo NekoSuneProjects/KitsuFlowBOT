@@ -79,7 +79,7 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
   if(!row)return res.sendStatus(404);req.source=row;next();
  };
  app.get('/multichat/:key',source,(req,res)=>{
-  res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'none'; object-src 'none'; frame-ancestors *"});
+  res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' https://static-cdn.jtvnw.net https://cdn.betterttv.net https://cdn.frankerfacez.com https://*.7tv.app https://cdn.7tv.app https://*.7tv.io; object-src 'none'; frame-ancestors *"});
   res.sendFile('multichat.html',{root:'public'});
  });
  app.get('/obs/game/:key',source,(req,res)=>{
