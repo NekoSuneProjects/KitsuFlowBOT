@@ -1,8 +1,22 @@
 (()=>{'use strict';
 const feed=document.getElementById('feed'),statusEl=document.getElementById('connection-status');
 const secret=encodeURIComponent(location.pathname.split('/').pop());
-let after=0,initial=true,tts=false,rate=1.08,volume=1,emotes={},voiceName='',voiceLang='en-GB',pitch=1,maxLength=300,cooldown=15,template='{username} says {message}',platforms=['twitch','kick','vpzone'];
+let after=0,initial=true,tts=false,rate=1.08,volume=1,emotes={},provider='browser',voiceName='',voiceLang='en-GB',pitch=1,maxLength=300,cooldown=15,template='{username} says {message}',platforms=['twitch','kick','vpzone'];
 const lastSpoken=new Map();
+const speechQueue=[];let audioPlaying=false;
+async function playQueue(){
+ if(audioPlaying||!speechQueue.length)return;
+ audioPlaying=true;const entry=speechQueue.shift();
+ try{
+  const r=await fetch('/api/multichat/tts/'+secret,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:entry})});
+  if(!r.ok)throw Error('Kokoro HTTP '+r.status);
+  const objectUrl=URL.createObjectURL(await r.blob());
+  try{const audio=new Audio(objectUrl);audio.volume=Math.max(0,Math.min(1,volume));await audio.play();await new Promise(resolve=>{audio.onended=resolve;audio.onerror=resolve})}
+  finally{URL.revokeObjectURL(objectUrl)}
+ }catch(err){console.warn('Kokoro TTS playback failed:',err.message)}
+ finally{audioPlaying=false;playQueue()}
+}
+
 const empty=document.createElement('div');empty.className='placeholder';empty.textContent='Waiting for messages from connected channels…';feed.append(empty);
 function status(data){
  statusEl.replaceChildren();
@@ -54,12 +68,17 @@ function line(item){
  const body=document.createElement('div');body.className='chat-body';content(body,item);
  header.append(tag,username,time);row.append(header,body);feed.append(row);
  while(feed.children.length>65)feed.firstChild.remove();
- if(!initial&&tts&&platforms.includes(item.platform)&&'speechSynthesis'in window){
+ if(!initial&&tts&&platforms.includes(item.platform)){
   const userKey=item.platform+':'+item.sender.toLowerCase(),now=Date.now();
   if(now-(lastSpoken.get(userKey)||0)>=cooldown*1000){
    lastSpoken.set(userKey,now);
    const message=String(item.content||'').slice(0,maxLength).replace(/\\s+\\S*$/,'');
    const spoken=template.replaceAll('{username}',item.sender).replaceAll('{message}',message||String(item.content||'').slice(0,maxLength)).replaceAll('{platform}',item.platform);
+   if(provider==='kokoro'){
+    if(speechQueue.length<20){speechQueue.push(spoken);playQueue()}
+    return;
+   }
+   if(!('speechSynthesis' in window))return;
    const utterance=new SpeechSynthesisUtterance(spoken);
    utterance.rate=rate;utterance.volume=volume;utterance.pitch=pitch;utterance.lang=voiceLang;
    if(voiceName){const candidate=speechSynthesis.getVoices().find(v=>v.name===voiceName);if(candidate)utterance.voice=candidate}
@@ -74,7 +93,7 @@ async function poll(){
  try{
   const r=await fetch('/api/multichat/feed/'+secret+'?after='+after,{cache:'no-store'});
   if(!r.ok)throw Error('Chat feed HTTP '+r.status);
-  const data=await r.json();tts=Boolean(data.tts_enabled);rate=Number(data.tts_rate)||1.08;volume=Number(data.tts_volume??1);voiceName=String(data.tts_voice||'');voiceLang=String(data.tts_lang||'en-GB');pitch=Number(data.tts_pitch??1);maxLength=Number(data.tts_max_length??300);cooldown=Number(data.tts_cooldown??15);template=String(data.tts_template||'{username} says {message}');platforms=data.tts_platforms||[];
+  const data=await r.json();tts=Boolean(data.tts_enabled);rate=Number(data.tts_rate)||1.08;volume=Number(data.tts_volume??1);provider=String(data.tts_provider||'browser');voiceName=String(data.tts_voice||'');voiceLang=String(data.tts_lang||'en-GB');pitch=Number(data.tts_pitch??1);maxLength=Number(data.tts_max_length??300);cooldown=Number(data.tts_cooldown??15);template=String(data.tts_template||'{username} says {message}');platforms=data.tts_platforms||[];
   status(data.connections);
   for(const m of data.messages||[]){after=Math.max(after,Number(m.id)||0);line(m)}
   initial=false;
