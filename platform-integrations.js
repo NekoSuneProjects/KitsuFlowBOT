@@ -51,7 +51,7 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base})
  db.prepare('INSERT INTO platform_oauth(channel,platform,external_id,display_name,access_token,refresh_token,expires_at,scopes) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(channel,platform) DO UPDATE SET external_id=excluded.external_id,display_name=excluded.display_name,access_token=excluded.access_token,refresh_token=excluded.refresh_token,expires_at=excluded.expires_at,scopes=excluded.scopes').run(o.channel,type,identity.id,identity.display,enc(token.access_token),enc(token.refresh_token),Date.now()+Number(token.expires_in||3600)*1000,String(token.scope||p.scope));
  db.prepare('INSERT OR REPLACE INTO provider_accounts(id,channel,platform,external_id,display_name,status) VALUES(?,?,?,?,?,?)').run(o.channel+':'+type,o.channel,type,identity.id,identity.display,'connected');
  log(o.channel,'provider-linked',type+' '+identity.display);
- res.redirect('/?connected='+encodeURIComponent(type));
+ res.redirect('/dashboard?connected='+encodeURIComponent(type));
  }));
  app.post('/api/platforms/:platform/disconnect',withUser,verifyChannel,csrf,(req,res)=>{
  const type=req.params.platform;if(!providers[type])return res.sendStatus(404);
