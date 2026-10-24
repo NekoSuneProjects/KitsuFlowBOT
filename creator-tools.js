@@ -13,6 +13,8 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
  CREATE INDEX IF NOT EXISTS multichat_channel_idx ON multichat_messages(channel,id DESC);
  CREATE TABLE IF NOT EXISTS stream_overlay_metadata(channel TEXT NOT NULL,platform TEXT NOT NULL,title TEXT NOT NULL,game TEXT NOT NULL,updated TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(channel,platform));`);
  const owner=[withUser,access.channelOnly('owner'),csrf];
+ let providerStatus=()=>({});
+ const setProviderStatus=fn=>{providerStatus=fn};
  app.get('/api/creator-ai',withUser,access.channelOnly('owner'),(req,res)=>{
   const row=db.prepare('SELECT endpoint,model,key_encrypted FROM creator_ai_settings WHERE channel=?').get(req.channelId);
   res.set('Cache-Control','no-store').json({endpoint:row?.endpoint||'',model:row?.model||'',hasKey:Boolean(row?.key_encrypted)});
@@ -90,7 +92,7 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
  app.get('/api/multichat/feed/:key',source,(req,res)=>{
   const after=Math.max(0,Number(req.query.after)||0);
   const messages=db.prepare('SELECT id,platform,sender,content,created FROM multichat_messages WHERE channel=? AND id>? ORDER BY id ASC LIMIT 60').all(req.source.channel,after);
-  res.set('Cache-Control','no-store').json({messages,tts_enabled:Boolean(req.source.tts_enabled)});
+  res.set('Cache-Control','no-store').json({messages,tts_enabled:Boolean(req.source.tts_enabled),connections:providerStatus(req.source.channel)});
  });
  function observe(channel,platform,sender,content){
   if(!['twitch','kick','vpzone'].includes(platform))return;
@@ -99,5 +101,5 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
   db.prepare('INSERT INTO multichat_messages(channel,platform,sender,content) VALUES(?,?,?,?)').run(channel,platform,String(sender||'Viewer').slice(0,80),msg);
   db.prepare('DELETE FROM multichat_messages WHERE channel=? AND id<(SELECT COALESCE(MAX(id),0)-500 FROM multichat_messages WHERE channel=?)').run(channel,channel);
  }
- return {observe};
+ return {observe,setProviderStatus};
 }
