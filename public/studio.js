@@ -110,6 +110,36 @@ async function connections(){
  c.append(h('div','list-row',e('span','Twitch broadcaster'),e('strong','@'+state.channel.login)),h('div','list-row',e('span','Shared bot'),e('strong',state.bot?'@'+state.bot.login:'Not connected')));
  const enabled=input('Enable bot for my channel',!!state.channel.enabled,'checkbox'),links=input('Timeout unapproved links',!!state.channel.links,'checkbox');
  c.append(grid('cols2',enabled.node,links.node),actions(btn('Save Twitch settings',async()=>{await api('/api/settings','POST',{enabled:enabled.value(),links:links.value()});await reloadView()},'primary')));
+ const metadata=card('Set title and game on linked platforms','Search each platform native game catalog, select its own category, then apply the same stream title to all selected platforms.');
+ const titleInput=input('Stream title','');
+ const gameInput=input('Search game / category (example: AION 2)','');
+ const lookup=e('div','','stack');
+ const output=e('div','','stack');
+ const chosen={},checkboxes={};
+ for(const platform of ['twitch','kick','vpzone'])checkboxes[platform]=input('Update '+platform.toUpperCase(),true,'checkbox');
+ metadata.append(grid('cols2',titleInput.node,gameInput.node),actions(...Object.values(checkboxes).map(x=>x.node)),actions(btn('Find platform games',async()=>{
+  const data=await api('/api/stream-metadata/categories?q='+encodeURIComponent(gameInput.value()));
+  lookup.replaceChildren();
+  for(const platform of ['twitch','kick','vpzone']){
+   const results=data[platform]||[];
+   const select=input(platform.toUpperCase()+' category', '', 'select');
+   select.el.append(new Option('Select category',''));
+   for(const cat of results){const opt=new Option(cat.name,cat.id);select.el.append(opt)}
+   if(results.length===1)select.el.value=results[0].id;
+   select.el.onchange=()=>{chosen[platform]=results.find(x=>x.id===select.el.value)||null};
+   if(results.length===1)chosen[platform]=results[0];
+   lookup.append(select.node);
+   if(data[platform+'_error'])lookup.append(e('p',platform+': '+data[platform+'_error'],'description'));
+   else if(!results.length)lookup.append(e('p',platform+': no matching categories returned','description'));
+  }
+ },'primary'),btn('Update selected platforms',async()=>{
+  const platforms=Object.entries(checkboxes).filter(([,v])=>v.value()).map(([k])=>k);
+  if(platforms.some(p=>!chosen[p])){notify('Choose a native category for every selected platform');return}
+  const x=await api('/api/stream-metadata/sync','POST',{title:titleInput.value(),platforms,categories:chosen});
+  output.replaceChildren();
+  for(const item of x.results)output.append(e('div',item.platform.toUpperCase()+': '+item.status+(item.error?' — '+item.error:' — '+item.category),'description'));
+ },'primary')),lookup,output);
+ c.append(metadata);
  const runtime=await api('/api/platforms/runtime').catch(()=>null);
  const providerCard=card('Linked streaming channels','Kick and VPZone attach to your Twitch-based profile. You stay signed in with Twitch, and manage them from one dashboard. Connected platforms share creator settings and commands where their chat integrations support them.');
  let result;try{result=await api('/api/platforms')}catch(err){providerCard.append(e('div','Could not load Kick/VPZone connections: '+err.message,'empty'));result={platforms:[]}}
