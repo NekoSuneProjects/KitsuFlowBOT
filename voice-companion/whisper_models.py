@@ -70,9 +70,11 @@ def model_complete(folder):
     return all((folder/name).is_file() and (folder/name).stat().st_size>0
                for name in ("model.bin","config.json","tokenizer.json","vocabulary.txt"))
 
-def ensure_whisper_model(root,model,progress=None):
+def ensure_whisper_model(root,model,progress=None,cancel=None):
     """Download to one persistent directory; huggingface_hub resumes/cache-validates downloads."""
     if model not in REPOS: raise ValueError("Unsupported Whisper model")
+    if cancel is not None and cancel.is_set():
+        raise InterruptedError("Whisper download cancelled")
     folder=cache_dir(root,model)
     from huggingface_hub import snapshot_download
     from huggingface_hub.utils import disable_progress_bars
@@ -84,6 +86,8 @@ def ensure_whisper_model(root,model,progress=None):
     snapshot_download(repo_id=REPOS[model],local_dir=str(folder),allow_patterns=[
         "config.json","model.bin","tokenizer.json","vocabulary.*","preprocessor_config.json"
     ])
+    if cancel is not None and cancel.is_set():
+        raise InterruptedError("Whisper download cancelled")
     if not model_complete(folder):
         raise RuntimeError("Whisper model download incomplete")
     if progress: progress(100,"Whisper "+model+" ready")

@@ -100,6 +100,9 @@ class App:
         self.whisper_backend = tk.StringVar(value=self.settings.get("KITSUFLOW_WHISPER_BACKEND", "auto"))
         self.inbox = queue.Queue()
         self.stop = threading.Event()
+        self.closing = threading.Event()
+        self.cancel_download = threading.Event()
+        self.download_thread = None
         self.thread = None
         self.downloading = False
         self.status = tk.StringVar(value="Disconnected")
@@ -107,7 +110,8 @@ class App:
         self.routing = tk.StringVar(value="Not connected")
         self.configure_ui()
         self.refresh_mics()
-        self.root.after(100, self.process_messages)
+        if not self.closing.is_set():
+            self.root.after(100, self.process_messages)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
     def configure_ui(self):
@@ -332,6 +336,8 @@ class App:
         threading.Thread(target=play, daemon=True).start()
 
     def process_messages(self):
+        if self.closing.is_set():
+            return
         try:
             while True:
                 kind, value = self.inbox.get_nowait()
@@ -361,7 +367,8 @@ class App:
                     self.stop_button.config(state="disabled")
         except queue.Empty:
             pass
-        self.root.after(100, self.process_messages)
+        if not self.closing.is_set():
+            self.root.after(100, self.process_messages)
 
     def browse_model(self):
         directory = filedialog.askdirectory(title="Select extracted Vosk model folder")
@@ -371,6 +378,7 @@ class App:
         if self.downloading:
             return
         self.downloading = True
+        self.cancel_download.clear()
         self.download_button.config(state="disabled")
         values = self.values()
         model_path = Path(values["KITSUFLOW_VOSK_MODEL"]).expanduser()
@@ -380,16 +388,22 @@ class App:
                 if values["KITSUFLOW_STT_ENGINE"] == "whisper":
                     selected = values["KITSUFLOW_WHISPER_MODEL"]
                     if selected == "auto": selected = recommended_model(self.gpu)
-                    ensure_whisper_model(ROOT, selected, lambda p, msg: self.inbox.put(("model_progress", (p, msg))))
+                    ensure_whisper_model(ROOT, selected, lambda p, msg: self.inbox.put(("model_progress", (p, msg))), cancel=self.cancel_download)
                 else:
-                    install_model(model_path, lambda p, msg: self.inbox.put(("model_progress", (p, msg))))
+                    install_model(model_path, lambda p, msg: self.inbox.put(("model_progress", (p, msg))), cancel=self.cancel_download)
+                if self.cancel_download.is_set() or self.closing.is_set():
+                    return
                 self.inbox.put(("model_done", True))
                 if then_listen is not None:
                     self.inbox.put(("start_after_download", values))
+            except InterruptedError:
+                self.inbox.put(("log", "Model download cancelled."))
+                self.inbox.put(("model_done", False))
             except Exception as exc:
                 self.inbox.put(("log", "Model download error: " + str(exc)))
                 self.inbox.put(("model_done", False))
-        threading.Thread(target=worker, daemon=True).start()
+        self.download_thread = threading.Thread(target=worker, daemon=True)
+        self.download_thread.start()
 
     def refresh_mics(self):
         try:
@@ -518,8 +532,10 @@ class App:
             else:
                 from faster_whisper import WhisperModel
                 import numpy as np
+            if self.stop.is_set(): return
             config = request(values["KITSUFLOW_URL"], values["KITSUFLOW_DEVICE_KEY"],
                              "/api/voice-companion/device/config")
+            if self.stop.is_set(): return
             send("config", config)
             send("status", "Loading offline speech model…")
             if engine == "vosk":
@@ -544,6 +560,7 @@ class App:
                 send("log", "Whisper " + selected_model + " loaded on " + device + " (" + precision + ")")
                 segment_buffer = bytearray()
                 last_transcribe = time.monotonic()
+            if self.stop.is_set(): return
             audio = queue.Queue(maxsize=64)
             def capture(indata, frames, timing, status):
                 if status: send("log", "Mic status: " + str(status))
@@ -614,7 +631,14 @@ class App:
             send("stopped", None)
 
     def close(self):
+        if self.closing.is_set():
+            return
+        self.closing.set()
         self.stop.set()
+        self.cancel_download.set()
+        # Worker threads are daemons: closing the window must never leave the GUI
+        # hanging on a slow network request or a blocked model transcription.
+        # The microphone stream is released by the listening worker's context manager.
         self.root.destroy()
 
 def main():
