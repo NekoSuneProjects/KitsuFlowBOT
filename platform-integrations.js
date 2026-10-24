@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {WebSocket} from 'ws';
 const providers={
  kick:{auth:'https://id.kick.com/oauth/authorize',token:'https://id.kick.com/oauth/token',client:'KICK_CLIENT_ID',secret:'KICK_CLIENT_SECRET',scope:process.env.KICK_AUTH_SCOPES||'user:read channel:read channel:write chat:write events:subscribe moderation:ban'},
  vpzone:{auth:'https://vpzone.tv/oauth/authorize',token:'https://vpzone.tv/api/oauth/token',client:'VPZONE_CLIENT_ID',secret:'VPZONE_CLIENT_SECRET',scope:'profile:read dashboard:read chat:read'}
@@ -10,10 +11,45 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  db.exec(`CREATE TABLE IF NOT EXISTS platform_oauth(channel TEXT NOT NULL,platform TEXT NOT NULL,external_id TEXT NOT NULL,display_name TEXT NOT NULL,access_token TEXT NOT NULL,refresh_token TEXT NOT NULL,expires_at INTEGER NOT NULL,scopes TEXT NOT NULL,PRIMARY KEY(channel,platform));
  CREATE TABLE IF NOT EXISTS platform_delivery(platform TEXT NOT NULL,message_id TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(platform,message_id));`);
  db.exec("CREATE TABLE IF NOT EXISTS platform_bot_accounts(platform TEXT PRIMARY KEY,external_id TEXT NOT NULL,display_name TEXT NOT NULL,access_token TEXT NOT NULL,refresh_token TEXT NOT NULL,expires_at INTEGER NOT NULL)");
+ const vpSockets=new Map();
+ function vpzoneConnect(channel,slug){
+  if(!/^[a-z0-9_-]{2,32}$/i.test(slug))return;
+  const existing=vpSockets.get(channel);
+  if(existing?.slug===slug&&[WebSocket.OPEN,WebSocket.CONNECTING].includes(existing.ws.readyState))return;
+  if(existing){clearTimeout(existing.timer);existing.ws.close();vpSockets.delete(channel)}
+  const entry={slug,ws:null,timer:null};
+  const connect=()=>{
+   if(db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='vpzone' AND display_name=?").get(channel,slug)===undefined){vpSockets.delete(channel);return}
+   const ws=new WebSocket('wss://chat.vpzone.tv/ws?channel='+encodeURIComponent(slug));entry.ws=ws;
+   ws.on('open',()=>log(channel,'vpzone-chat-connected',slug));
+   ws.on('message',raw=>{
+    try{
+     const event=JSON.parse(String(raw));const item=event.message||event.data||event;
+     const username=String(item.username||item.sender?.username||'');
+     const body=String(item.body||item.content||item.text||'').slice(0,350);
+     if(!username||!body)return;
+     const bot=db.prepare("SELECT external_id,display_name FROM platform_bot_accounts WHERE platform='vpzone'").get();
+     const isBot=Boolean(bot&&(String(item.user_id||item.sender?.id||'')===bot.external_id||username.toLowerCase()===bot.display_name.toLowerCase()));
+     void relay.relay(channel,'vpzone',username,body,{isBot}).catch(err=>log(channel,'vpzone-relay-error',err.message));
+    }catch(err){log(channel,'vpzone-event-error',err.message)}
+   });
+   ws.on('error',err=>log(channel,'vpzone-ws-error',err.message));
+   ws.on('close',()=>{if(vpSockets.get(channel)!==entry)return;entry.timer=setTimeout(connect,10000);entry.timer.unref?.()});
+  };
+  vpSockets.set(channel,entry);connect();
+ }
+ function vpzoneDisconnect(channel){const entry=vpSockets.get(channel);if(!entry)return;vpSockets.delete(channel);clearTimeout(entry.timer);entry.ws?.close()}
+ // Restore chat connectivity after process restarts as well as after OAuth callbacks.
+ const restore=()=>{for(const item of db.prepare("SELECT channel,display_name FROM platform_oauth WHERE platform='vpzone'").all())vpzoneConnect(item.channel,item.display_name)};
+ restore();
  const conf=type=>{const p=providers[type];if(!p)return null;return {...p,clientId:process.env[p.client],clientSecret:process.env[p.secret]}};
  const safe=fn=>(req,res)=>Promise.resolve(fn(req,res)).catch(e=>{console.error('platform:',e.message);res.status(400).json({error:e.message})});
  const authUser=(req,res,next)=>req.session.uid?next():res.status(401).json({error:'Sign in with Twitch first'});
  const verifyChannel=(req,res,next)=>{const channel=access.channelFor(req);if(!channel||!access.can(req.session.uid,channel,'owner'))return res.status(403).json({error:'Channel owner required'});req.channelId=channel;next()};
+ app.get('/api/platforms/runtime',withUser,access.channelOnly('editor'),(req,res)=>{
+ const sock=vpSockets.get(req.channelId);
+ res.json({vpzone:{linked:Boolean(db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='vpzone'").get(req.channelId)),chat_connected:Boolean(sock?.ws?.readyState===WebSocket.OPEN)},kick:{linked:Boolean(db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='kick'").get(req.channelId)),webhook_enabled:process.env.KICK_WEBHOOK_ENABLED!=='false',subscription_active:false,detail:'Kick event subscription registration not configured'}});
+ });
  app.get('/api/platforms',withUser,access.channelOnly('editor'),(req,res)=>{
  const rows=db.prepare('SELECT platform,external_id,display_name,expires_at,scopes FROM platform_oauth WHERE channel=?').all(req.channelId);
  res.json({platforms:['twitch','kick','vpzone'].map(platform=>({platform,configured:platform==='twitch'||Boolean(conf(platform)?.clientId&&conf(platform)?.clientSecret),connection:rows.find(r=>r.platform===platform)||null}))});
@@ -93,11 +129,13 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
  db.prepare('INSERT INTO platform_oauth(channel,platform,external_id,display_name,access_token,refresh_token,expires_at,scopes) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(channel,platform) DO UPDATE SET external_id=excluded.external_id,display_name=excluded.display_name,access_token=excluded.access_token,refresh_token=excluded.refresh_token,expires_at=excluded.expires_at,scopes=excluded.scopes').run(o.channel,type,identity.id,identity.display,enc(token.access_token),enc(token.refresh_token),Date.now()+Number(token.expires_in||3600)*1000,String(token.scope||p.scope));
  db.prepare('INSERT OR REPLACE INTO provider_accounts(id,channel,platform,external_id,display_name,status) VALUES(?,?,?,?,?,?)').run(o.channel+':'+type,o.channel,type,identity.id,identity.display,'connected');
  log(o.channel,'provider-linked',type+' '+identity.display);
+ if(type==='vpzone')vpzoneConnect(o.channel,identity.display);
  res.redirect('/dashboard?connected='+encodeURIComponent(type));
  }));
  app.post('/api/platforms/:platform/disconnect',withUser,verifyChannel,csrf,(req,res)=>{
  const type=req.params.platform;if(!providers[type])return res.sendStatus(404);
  db.prepare('DELETE FROM platform_oauth WHERE channel=? AND platform=?').run(req.channelId,type);
+ if(type==='vpzone')vpzoneDisconnect(req.channelId);
  db.prepare('DELETE FROM provider_accounts WHERE channel=? AND platform=?').run(req.channelId,type);
  log(req.channelId,'provider-disconnected',type);res.json({ok:true});
  });
