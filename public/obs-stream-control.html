@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KitsuFlowBOT - OBS Stream Control</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,Segoe UI,Arial,sans-serif;background:#101115;color:#eef2f6}
+*{box-sizing:border-box}body{margin:0;padding:16px}main{max-width:900px;margin:auto}
+h1{font-size:18px;margin:0 0 4px;color:#61e5ca}h2{font-size:14px;margin:0 0 12px}
+p,.hint{color:#a5b0c0;font-size:12px;line-height:1.55}.panel{padding:17px;border:1px solid #29404a;border-radius:14px;background:#161b25;margin:12px 0}
+label{display:block;font-size:12px;font-weight:650;margin:12px 0 5px}
+input[type=text],textarea,select{display:block;width:100%;border:1px solid #415065;border-radius:8px;background:#0c1420;padding:10px;color:#fff;font:inherit}
+textarea{resize:vertical;min-height:62px}button{border:1px solid #426276;color:#ecfbff;background:#253443;padding:9px 12px;border-radius:9px;cursor:pointer;font-weight:650}
+button.primary{background:#10bda5;color:#062c2c;border-color:#13cdb0}button:disabled{opacity:.5;cursor:wait}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.checks{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px}.checks label{margin:0}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.categories{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:10px;margin-top:10px}
+.status{font-size:12px;line-height:1.5;white-space:pre-wrap;padding:10px;border:1px solid #345060;border-radius:9px;margin:12px 0;color:#b7dee8}
+a{color:#67e6d4}@media(max-width:550px){.row{grid-template-columns:1fr}}
+</style>
+</head>
+<body><main>
+<h1>KITSUFLOW - STREAM CONTROL</h1>
+<p>Edit your live stream directly from an OBS Custom Browser Dock. Your changes are published to the selected connected platforms; this is not an on-screen overlay.</p>
+<div id="status" class="status" role="status">Checking your signed-in account...</div>
+<section class="panel">
+<h2>Stream title and game</h2>
+<label for="title">Stream title</label><input id="title" type="text" maxlength="140" placeholder="Enter the title for your stream">
+<label for="game">Search game or category</label><input id="game" type="text" maxlength="90" placeholder="Example: AION 2">
+<div class="checks"><label><input type="checkbox" value="twitch" checked> Twitch</label><label><input type="checkbox" value="kick"> Kick</label><label><input type="checkbox" value="vpzone"> VPZone</label></div>
+<div class="actions"><button id="search" class="primary">Find games</button><button id="publish" class="primary">Update title and game</button><button id="refresh">Refresh current details</button></div>
+<div id="categories" class="categories"></div>
+<p class="hint">Choose a matching native category for every platform you update. Platforms can have different category IDs.</p>
+</section>
+<section class="panel"><h2>AI stream title generator</h2>
+<label for="context">Stream idea, mood or description</label><textarea id="context" placeholder="Relaxed PvE dungeons, chatting with viewers, Ranger progression"></textarea>
+<div class="actions"><button id="suggest">Generate AI title</button></div>
+<p class="hint">Generated titles appear in the title box. Review them before pressing Update; AI never publishes automatically.</p></section>
+<section class="panel"><h2>Current synced stream information</h2><div id="current" class="hint">No metadata loaded yet.</div></section>
+</main><script>
+'use strict';
+const $=id=>document.getElementById(id);
+const status=(message)=>{$('status').textContent=message};
+const choices={};let working=false;
+const platformNames=['twitch','kick','vpzone'];
+const selected=()=>Array.from(document.querySelectorAll('input[type=checkbox]:checked')).map(e=>e.value);
+async function request(url,method='GET',body){
+ const response=await fetch(url,{method,credentials:'same-origin',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,cache:'no-store'});
+ const payload=await response.json().catch(()=>({}));
+ if(!response.ok)throw Error(payload.error||('HTTP '+response.status+(response.status===401?' - sign in to KitsuFlowBOT in this dock':'') ));
+ return payload;
+}
+async function busy(button,callback){
+ if(working)return;working=true;const old=button.textContent;button.disabled=true;button.textContent='Working...';
+ try{await callback()}catch(error){status('Error: '+error.message)}
+ finally{working=false;button.disabled=false;button.textContent=old}
+}
+async function refresh(){
+ const data=await request('/api/obs/stream-info');
+ const records=data.platforms||[];
+ $('current').replaceChildren();
+ if(!records.length){$('current').textContent='No previously synced metadata. Set a title and game above.'}
+ records.forEach(item=>{
+  const p=document.createElement('p');
+  p.textContent=item.platform.toUpperCase()+': '+item.title+' | '+item.game+' ('+item.updated+')';
+  $('current').append(p);
+ });
+ const preferred=records.find(v=>v.platform==='twitch')||records[0];
+ if(preferred){if(document.activeElement!==$('title'))$('title').value=preferred.title;if(document.activeElement!==$('game'))$('game').value=preferred.game}
+ status('Ready. Choose your platforms and update your stream.');
+}
+$('refresh').onclick=()=>busy($('refresh'),refresh);
+$('search').onclick=()=>busy($('search'),async()=>{
+ const q=$('game').value.trim();if(!q)throw Error('Enter a game or category to search.');
+ const data=await request('/api/stream-metadata/categories?q='+encodeURIComponent(q));
+ $('categories').replaceChildren();
+ for(const platform of platformNames){
+  delete choices[platform];
+  const box=document.createElement('div'),label=document.createElement('label'),select=document.createElement('select');
+  label.textContent=platform.toUpperCase()+' category';
+  const options=data[platform]||[];
+  select.add(new Option('Choose '+platform+' game',''));
+  for(const item of options)select.add(new Option(item.name,String(item.id)));
+  if(options.length===1)select.value=String(options[0].id);
+  select.onchange=()=>{choices[platform]=options.find(o=>String(o.id)===select.value)||null};
+  select.onchange();box.append(label,select);
+  if(data[platform+'_error']||!options.length){
+   const note=document.createElement('p');note.className='hint';
+   note.textContent=data[platform+'_error']||'No matching category returned';box.append(note);
+  }
+  $('categories').append(box);
+ }
+ status('Category search completed. Select the correct game for each checked platform.');
+});
+$('suggest').onclick=()=>busy($('suggest'),async()=>{
+ const game=$('game').value.trim();if(!game)throw Error('Enter a game first.');
+ const result=await request('/api/creator-ai/suggest','POST',{game,context:$('context').value.trim()});
+ $('title').value=result.title;status('AI title generated. Review it before publishing.');
+});
+$('publish').onclick=()=>busy($('publish'),async()=>{
+ const platforms=selected(),title=$('title').value.trim();
+ if(!title)throw Error('Enter a stream title.');
+ if(!platforms.length)throw Error('Select at least one platform.');
+ if(platforms.some(p=>!choices[p]))throw Error('Search and choose a category for every checked platform.');
+ const results=await request('/api/stream-metadata/sync','POST',{title,platforms,categories:Object.fromEntries(platforms.map(p=>[p,choices[p]]))});
+ status((results.results||[]).map(r=>r.platform.toUpperCase()+': '+r.status+(r.error?' - '+r.error:'')).join('\n')||'Update submitted');
+ const current=await request('/api/obs/stream-info');
+ $('current').replaceChildren();
+ for(const item of current.platforms||[]){
+  const p=document.createElement('p');p.textContent=item.platform.toUpperCase()+': '+item.title+' | '+item.game;$('current').append(p);
+ }
+});
+refresh().catch(err=>status('Sign in to KitsuFlowBOT using this OBS dock, then reload. '+err.message));
+</script></body></html>

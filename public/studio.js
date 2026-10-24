@@ -180,6 +180,9 @@ async function connections(){
   notify('Suggested title added to the Stream title field. Review it before publishing.');
  },'primary')));
  c.append(aiCard);
+ const dockCard=card('OBS Stream Control Dock','Edit your Twitch, Kick and VPZone stream title and game, or generate an AI title, from a private OBS Custom Browser Dock. Unlike the game/title overlay, this dock is a control panel and requires your broadcaster login.');
+ dockCard.append(actions(link('Open OBS Stream Control Dock ↗','/obs/stream-control')),e('p','In OBS: Docks → Custom Browser Docks → add your KitsuFlowBOT URL ending in /obs/stream-control. Sign in with your broadcaster account in the dock.','description'));
+ c.append(dockCard);
  const multiCard=card('Multi-chat OBS browser source','Read combined Twitch, Kick and VPZone chat in OBS without cross-posting. The private source URL acts as a secret, and browser speech synthesis can read messages aloud.');
  const multi=await api('/api/multichat/settings').catch(()=>({configured:false,tts_enabled:false}));
  const speech=input('Enable browser TTS',multi.tts_enabled,'checkbox');
