@@ -266,6 +266,7 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   return {ok:true};
  }
  relay.register('vpzone',vpzoneBotSay);
+ streamActivity.setSender('vpzone',vpzoneBotSay);
  app.post('/api/platforms/vpzone/chat',withUser,access.channelOnly('owner'),csrf,safe(async(req,res)=>{
   res.json(await vpzoneBotSay(req.channelId,req.body?.message));
  }));
@@ -319,6 +320,7 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   return {ok:true,mode:'oauth-bot'};
  }
  relay.register('kick',kickBotSay);
+ streamActivity.setSender('kick',kickBotSay);
  app.post('/api/platforms/kick/chat',withUser,access.channelOnly('owner'),csrf,safe(async(req,res)=>{
   const result=await kickBotSay(req.channelId,req.body.message);res.json(result);
  }));
