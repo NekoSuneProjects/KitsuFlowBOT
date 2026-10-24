@@ -13,7 +13,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from model_downloader import install_model, valid_model
-from whisper_models import MODELS, gpu_information, recommended_model, backend, ensure_whisper_model
+from whisper_models import MODELS, gpu_information, recommended_model, backend, ensure_whisper_model, model_complete
 
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 ENV = ROOT / ".env"
@@ -304,9 +304,9 @@ class App:
             if selected == "auto": selected = recommended_model(self.gpu)
             from whisper_models import cache_dir
             folder = cache_dir(ROOT, selected)
-            if not (folder / "model.bin").is_file():
+            if not model_complete(folder):
                 if self.downloading: return
-                self.push("Downloading Whisper " + selected + " into model/whisper/...")
+                self.push("Checking/repairing Whisper " + selected + " in model/whisper/...")
                 self.download_model(then_listen=True)
                 return
         self.stop.clear()
@@ -342,6 +342,8 @@ class App:
                 if selected_model == "auto": selected_model = recommended_model(self.gpu)
                 from whisper_models import cache_dir
                 model_folder = cache_dir(ROOT, selected_model)
+                if not model_complete(model_folder):
+                    raise RuntimeError("Whisper model is incomplete. Press Download selected model to repair it.")
                 device, precision = backend(self.gpu)
                 try:
                     model = WhisperModel(str(model_folder), device=device, compute_type=precision)
