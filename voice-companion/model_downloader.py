@@ -15,7 +15,11 @@ def valid_model(folder):
     folder = Path(folder)
     return folder.is_dir() and (folder / "am" / "final.mdl").is_file() and (folder / "conf" / "model.conf").is_file()
 
-def install_model(destination, progress=lambda percent, message: None):
+def install_model(destination, progress=lambda percent, message: None, cancel=None):
+    def check_cancel():
+        if cancel is not None and cancel.is_set():
+            raise InterruptedError('Vosk model download cancelled')
+    check_cancel()
     destination = Path(destination).expanduser().resolve()
     if valid_model(destination):
         progress(100, "Full-quality model already installed")
@@ -44,6 +48,7 @@ def install_model(destination, progress=lambda percent, message: None):
         mode = "ab" if downloaded else "wb"
         with archive.open(mode) as output:
             while True:
+                check_cancel()
                 chunk = response.read(1024 * 1024)
                 if not chunk: break
                 downloaded += len(chunk)
@@ -69,6 +74,7 @@ def install_model(destination, progress=lambda percent, message: None):
         if staged.exists(): shutil.rmtree(staged)
         staged.mkdir()
         for index, entry in enumerate(entries):
+            check_cancel()
             relative = entry.filename[len(root):]
             if not relative: continue
             output = staged / relative
@@ -77,7 +83,11 @@ def install_model(destination, progress=lambda percent, message: None):
             else:
                 output.parent.mkdir(parents=True, exist_ok=True)
                 with z.open(entry) as source, output.open("wb") as target:
-                    shutil.copyfileobj(source, target, 1024 * 1024)
+                    while True:
+                        check_cancel()
+                        block = source.read(1024 * 1024)
+                        if not block: break
+                        target.write(block)
             if index % 100 == 0:
                 progress(91 + int(8 * index / max(len(entries), 1)), "Extracting full-quality speech model…")
     if not valid_model(staged):
