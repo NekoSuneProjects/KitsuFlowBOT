@@ -74,10 +74,11 @@ async function connections(){
  c.append(h('div','list-row',e('span','Twitch broadcaster'),e('strong','@'+state.channel.login)),h('div','list-row',e('span','Shared bot'),e('strong',state.bot?'@'+state.bot.login:'Not connected')));
  const enabled=input('Enable bot for my channel',!!state.channel.enabled,'checkbox'),links=input('Timeout unapproved links',!!state.channel.links,'checkbox');
  c.append(grid('cols2',enabled.node,links.node),actions(btn('Save Twitch settings',async()=>{await api('/api/settings','POST',{enabled:enabled.value(),links:links.value()});await reloadView()},'primary')));
+ const runtime=await api('/api/platforms/runtime').catch(()=>null);
  const providerCard=card('Linked streaming channels','Kick and VPZone attach to your Twitch-based profile. You stay signed in with Twitch, and manage them from one dashboard. Twitch bot chat commands currently work only on Twitch; connected-provider chat adapters will reuse these shared settings when supported.');
  const result=await api('/api/platforms');
  for(const provider of result.platforms.filter(x=>x.platform!=='twitch')){
-   const row=h('div','list-row',h('div','',e('strong',provider.platform==='kick'?'Kick':'VPZone'),e('div',provider.connection?'Connected: '+provider.connection.display_name:provider.configured?'Ready for OAuth connection':'Developer app credentials required','tiny')));
+   const row=h('div','list-row',h('div','',e('strong',provider.platform==='kick'?'Kick':'VPZone'),e('div',provider.connection?'Linked: '+provider.connection.display_name+' · '+(provider.platform==='vpzone'?(runtime?.vpzone?.chat_connected?'Chat connected':'Chat disconnected'):'Webhook subscription not active'):provider.configured?'Ready for OAuth connection':'Developer app credentials required','tiny')));
    if(provider.connection){
      row.append(actions(btn('View channel',async()=>{const data=await api('/api/platforms/'+provider.platform+'/channel');notify(provider.platform+' channel information loaded');console.info(data)}),btn('Disconnect',async()=>{if(!confirm('Disconnect '+provider.platform+'?'))return;await api('/api/platforms/'+provider.platform+'/disconnect','POST');await reloadView()},'danger')));
    }else if(provider.configured){
