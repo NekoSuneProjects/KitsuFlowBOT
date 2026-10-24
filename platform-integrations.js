@@ -368,6 +368,7 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
       await providerRequest('https://vpzone.tv/api/v1/channels/'+encodeURIComponent(slug),token,'PATCH',{title,category:chosen.name});
      }
     }
+    db.prepare('INSERT INTO stream_overlay_metadata(channel,platform,title,game,updated) VALUES(?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(channel,platform) DO UPDATE SET title=excluded.title,game=excluded.game,updated=CURRENT_TIMESTAMP').run(req.channelId,platform,title,chosen.name);
     result.push({platform,status:'updated',category:chosen.name});
    }catch(err){result.push({platform,status:'failed',error:String(err.message||err).slice(0,220)})}
   }
