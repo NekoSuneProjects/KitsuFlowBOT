@@ -64,25 +64,34 @@ jobs:
     name: Publish versioned GitHub Release
     needs: package
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/desktopapp-v') && github.event_name == 'push'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/desktopapp' || startsWith(github.ref, 'refs/tags/desktopapp-v'))
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Verify tag belongs to desktopapp branch
+      - name: Resolve release version and verify branch
+        id: version
         shell: bash
         run: |
           git fetch origin desktopapp
           git merge-base --is-ancestor "$GITHUB_SHA" origin/desktopapp || {
-            echo "::error::Release tag must point to a commit on the desktopapp branch."
+            echo "::error::Release must point to desktopapp history."
             exit 1
           }
-          [[ "$GITHUB_REF_NAME" =~ ^desktopapp-v[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]] || {
-            echo "::error::Use a version tag such as desktopapp-v1.0.0."
+          VERSION=$(tr -d '\\r\\n' < voice-companion/VERSION)
+          [[ "$VERSION" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]] || {
+            echo "::error::Invalid VERSION. Expected 1.0.0 or 1.0.0-beta.1"
             exit 1
           }
+          TAG="desktopapp-v$VERSION"
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "$TAG" ]]; then
+            echo "::error::Release tag does not match voice-companion/VERSION"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v4
         with:
           pattern: KitsuFlowVoiceCompanion-*
@@ -101,9 +110,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          TAG="$GITHUB_REF_NAME"
+          TAG="\${{ steps.version.outputs.tag }}"
           PRERELEASE_FLAG=()
           if [[ "$TAG" == *-*-* ]]; then PRERELEASE_FLAG=(--prerelease); fi
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists. Bump voice-companion/VERSION for a new release."
+            exit 0
+          fi
           gh release create "$TAG" release-assets/KitsuFlowVoiceCompanion-*.zip release-assets/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --title "KitsuFlow Voice Companion ${TAG#desktopapp-v}" \
