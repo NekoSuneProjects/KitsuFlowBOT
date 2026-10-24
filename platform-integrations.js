@@ -230,26 +230,31 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   return token.access_token;
  }
  async function kickBotSay(channel,text){
-  if(!db.prepare("SELECT 1 FROM platform_oauth WHERE channel=? AND platform='kick'").get(channel))throw Error('Kick broadcaster is not linked');
-  // Kick ignores broadcaster_user_id in application bot mode.
-  // Fail closed unless the admin explicitly pins this app token to a single channel.
-  const linked=db.prepare("SELECT external_id FROM platform_oauth WHERE channel=? AND platform='kick'").get(channel);
-  if(!linked||!/^[0-9]+$/.test(String(linked.external_id)))throw Error('The selected Twitch creator has no valid Kick broadcaster linked through OAuth');
-  // Application bot delivery is not targetable: Kick ignores broadcaster_user_id for type=bot.
-  // Prevent a shared app token being used as though it selects between different streamers.
-  const distinct=db.prepare("SELECT COUNT(DISTINCT external_id) AS total FROM platform_oauth WHERE platform='kick'").get().total;
-  if(distinct!==1)throw Error('Kick app bot send blocked: several different Kick broadcasters are linked, but Kick bot-mode token routing cannot select a target channel');
+  // Kick's official Chat API requires UserAccessToken with chat:write even when type='bot'.
+  // Always use the OAuth grant for this creator's selected, linked Kick channel.
+  const linked=db.prepare("SELECT external_id,scopes FROM platform_oauth WHERE channel=? AND platform='kick'").get(channel);
+  if(!linked||!/^[0-9]+$/.test(String(linked.external_id)))throw Error('Connect the selected creator\'s Kick channel through OAuth');
+  if(!String(linked.scopes||'').split(/\s+/).includes('chat:write'))throw Error('Kick chat:write permission missing. Reconnect this creator\'s Kick OAuth in Connections.');
   const content=String(text||'').trim().slice(0,500);
   if(!content)throw Error('Empty Kick bot message');
-  const send=async()=>{
-   const response=await fetch('https://api.kick.com/public/v1/chat',{method:'POST',headers:{Authorization:'Bearer '+await kickAppToken(),'Content-Type':'application/json'},body:JSON.stringify({content,type:'bot'}),signal:AbortSignal.timeout(12000)});
+  const send=async(token)=>{
+   const response=await fetch('https://api.kick.com/public/v1/chat',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({content,type:'bot'}),signal:AbortSignal.timeout(12000)});
    return {status:response.status,ok:response.ok,detail:response.ok?'':(await response.text()).slice(0,300)};
   };
-  let result=await send();
-  if(result.status===401){appToken=null;result=await send()}
-  if(!result.ok)throw Error('Kick application bot failed ('+result.status+'): '+result.detail);
-  log(channel,'kick-bot-message','application-bot');
-  return {ok:true,mode:'application-bot'};
+  let result=await send(await refresh(channel,'kick'));
+  if(result.status===401){
+   const row=db.prepare("SELECT refresh_token FROM platform_oauth WHERE channel=? AND platform='kick'").get(channel);
+   const p=conf('kick');
+   const response=await fetch(p.token,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'refresh_token',refresh_token:dec(row.refresh_token),client_id:p.clientId,client_secret:p.clientSecret}),signal:AbortSignal.timeout(12000)});
+   if(!response.ok)throw Error('Kick linked channel token refresh rejected ('+response.status+'). Reconnect Kick through Connections.');
+   const t=await response.json();
+   if(!t.access_token)throw Error('Kick did not issue a renewed channel token');
+   db.prepare("UPDATE platform_oauth SET access_token=?,refresh_token=?,expires_at=? WHERE channel=? AND platform='kick'").run(enc(t.access_token),enc(t.refresh_token||dec(row.refresh_token)),Date.now()+Number(t.expires_in||3600)*1000,channel);
+   result=await send(t.access_token);
+  }
+  if(!result.ok)throw Error('Kick bot-mode chat failed ('+result.status+'): '+result.detail+'. Verify the linked Kick broadcaster granted chat:write and has app bot posting enabled.');
+  log(channel,'kick-bot-message','oauth-bot-mode');
+  return {ok:true,mode:'oauth-bot'};
  }
  relay.register('kick',kickBotSay);
  app.post('/api/platforms/kick/chat',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{
