@@ -37,6 +37,21 @@ async function activity(){
  c.dataset.liveActivity='true';
  return c;
 }
+// All feature panels keep a consistent header, icon and accent treatment.
+function enhanceCreatorPanels(root){
+ const icons=new Map([['Unified creator profile','◉'],['Set title and game on linked platforms','▤'],['AI stream title helper','✦'],['Multi-chat OBS browser source','◈'],['Linked streaming channels','⇄']]);
+ root.querySelectorAll('.card').forEach(c=>{
+  const heading=c.querySelector(':scope > h2');
+  if(!heading||!icons.has(heading.textContent)||heading.parentElement.classList.contains('kf-panel-heading'))return;
+  const description=heading.nextElementSibling?.classList.contains('description')?heading.nextElementSibling:null;
+  const title=heading.textContent,wrapper=h('div','kf-panel-heading',e('span',icons.get(title),'kf-panel-icon'));
+  const copy=h('div','');
+  copy.append(heading);
+  if(description)copy.append(description);
+  wrapper.append(copy);
+  c.prepend(wrapper);
+ });
+}
 function reports(){return grid('stats',stat('Total members',creator.stats.members,'♙','Chat-based activity'),stat('Loyalty points',creator.stats.points,'✧','Current issued balances'),stat('Redemptions',creator.stats.redemptions,'▣','Store requests'),stat('Queue',creator.queue.length,'☷','Waiting viewers'))}
 function commands(){return wrap(form('Create custom command',[['name','Command name (! without prefix)'],['response','Bot response'],['cooldown','Cooldown in seconds','number',10],['level','Permission','options',['everyone','subscriber','moderator']]],'Save command',x=>api('/api/commands','POST',x)),h('section','card',e('h2','Saved commands'),table(['Command','Response','Level','Action'],state.commands.map(x=>['!'+x.name,x.response,x.level,btn('Delete',async()=>{await api('/api/commands/'+encodeURIComponent(x.name),'DELETE');await reloadView()},'danger')]))))}
 function timers(){return wrap(form('Create chat timer',[['name','Timer name'],['message','Announcement message'],['minutes','Interval (minutes)','number',15]],'Save timer',x=>api('/api/engagement/timer','POST',x)),h('section','card',e('h2','Current timers'),list(engagement.timers,x=>x.name+' · Every '+x.minutes+' minutes · '+x.message,x=>api('/api/engagement/timer/'+x.name,'DELETE'))))}
@@ -108,7 +123,7 @@ function quotes(){return wrap(form('Save a quote',[['text','Quote text']],'Add q
 function overlays(){return wrap(form('New OBS overlay',[['title','Overlay name'],['kind','Widget','options',['alerts','leaderboard','queue','ticker']]],'Create overlay',x=>api('/api/creator/overlay','POST',x)),h('section','card',e('h2','Browser source widgets'),table(['Widget','Type','Actions'],creator.overlays.map(x=>[x.title,x.kind,actions(link('Open source ↗','/overlay/'+x.public_key),btn('Test',async()=>{await api('/api/creator/overlay/test','POST',{id:x.id,message:'KitsuFlowBOT test notification'});notify('Test event sent')}))]))))}
 async function connections(){
  const c=card('Unified creator profile','Twitch is your primary login. Connect Kick and VPZone to this same workspace. Your saved settings and custom commands belong to this creator account.');
- c.append(h('div','list-row',e('span','Twitch broadcaster'),e('strong','@'+state.channel.login)),h('div','list-row',e('span','Shared bot'),e('strong',state.bot?'@'+state.bot.login:'Not connected')));
+ c.append(h('div','kf-connection-surface',h('div','kf-identity',e('div','Twitch broadcaster','kf-identity-label'),e('strong','@'+state.channel.login)),h('div','kf-identity',e('div','Shared bot','kf-identity-label'),e('strong',state.bot?'@'+state.bot.login:'Not connected'))));
  const enabled=input('Enable bot for my channel',!!state.channel.enabled,'checkbox'),links=input('Timeout unapproved links',!!state.channel.links,'checkbox');
  c.append(grid('cols2',enabled.node,links.node),actions(btn('Save Twitch settings',async()=>{await api('/api/settings','POST',{enabled:enabled.value(),links:links.value()});await reloadView()},'primary')));
  const metadata=card('Set title and game on linked platforms','Search each platform native game catalog, select its own category, then apply the same stream title to all selected platforms.');
@@ -118,7 +133,7 @@ async function connections(){
  const output=e('div','','stack');
  const chosen={},checkboxes={};
  for(const platform of ['twitch','kick','vpzone'])checkboxes[platform]=input('Update '+platform.toUpperCase(),true,'checkbox');
- metadata.append(grid('cols2',titleInput.node,gameInput.node),actions(...Object.values(checkboxes).map(x=>x.node)),actions(btn('Find platform games',async()=>{
+ metadata.append(grid('cols2',titleInput.node,gameInput.node),h('div','kf-settings-section',e('div','Publish to platforms','kf-settings-section-label'),h('div','kf-platforms',...Object.values(checkboxes).map(x=>x.node))),h('div','actions kf-editor-actions',btn('Find platform games',async()=>{
   const data=await api('/api/stream-metadata/categories?q='+encodeURIComponent(gameInput.value()));
   lookup.replaceChildren();
   for(const platform of ['twitch','kick','vpzone']){
