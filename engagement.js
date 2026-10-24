@@ -22,7 +22,15 @@ export function installEngagement({app,db,withUser,csrf,safe,say,moderate,log,ap
  const CHAT_IDLE_MS=10*60*1000;
  async function onMessage(ch,e,value,parts,isMod){
    // Only actual incoming viewer chat refreshes timer activity (bot messages excluded upstream).
-   if(value.trim())lastViewerChat.set(ch.id,Date.now());
+   if(value.trim()){
+     const now=Date.now(),previous=lastViewerChat.get(ch.id)||0;
+     // After silence, restart timers' countdown rather than flushing overdue
+     // announcements as soon as the first viewer talks.
+     if(now-previous>CHAT_IDLE_MS){
+       db.prepare('UPDATE timers SET last_sent=? WHERE channel=? AND enabled=1').run(now,ch.id);
+     }
+     lastViewerChat.set(ch.id,now);
+   }
    const text=value.toLowerCase();
    if(!isMod){for(const rule of db.prepare('SELECT word,action FROM banned_words WHERE channel=?').all(ch.id)){const pattern=new RegExp('(^|[^\\p{L}\\p{N}])'+rule.word.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?=$|[^\\p{L}\\p{N}])','iu');if(!pattern.test(text))continue;log(ch.id,'banned-word',e.chatter_user_login+': '+rule.word);if(rule.action!=='log')try{await moderate(ch.id,e.chatter_user_id,rule.action==='timeout'?600:null,'Banned word')}catch(err){log(ch.id,'error',err.message)}return true}}
    const cfg=db.prepare('SELECT * FROM loyalty_config WHERE channel=? AND enabled=1').get(ch.id);if(cfg){let members=live.get(ch.id);if(!members){members=new Map();live.set(ch.id,members)}members.set(e.chatter_user_id,{username:e.chatter_user_name,last:Date.now()})}
@@ -35,6 +43,6 @@ export function installEngagement({app,db,withUser,csrf,safe,say,moderate,log,ap
    return false;
  }
  // Active chatter is not equivalent to a complete viewer list. Credits are awarded only to recently active chatters while the channel is confirmed live.
- setInterval(async()=>{const channels=db.prepare('SELECT id FROM channels WHERE enabled=1').all();for(const ch of channels){try{const timers=db.prepare('SELECT * FROM timers WHERE channel=? AND enabled=1').all(ch.id);const cfg=db.prepare('SELECT * FROM loyalty_config WHERE channel=? AND enabled=1').get(ch.id);if(!timers.length&&!cfg)continue;const now=Date.now();if(now-(seen.get(ch.id)||0)<60000)continue;seen.set(ch.id,now);const info=(await api(ch.id,'streams?user_id='+ch.id)).data?.length>0;if(!info)continue;for(const t of timers){if(now-(lastViewerChat.get(ch.id)||0)>CHAT_IDLE_MS)continue;if(now-t.last_sent<t.minutes*60000)continue;await say(ch.id,t.message);db.prepare('UPDATE timers SET last_sent=? WHERE channel=? AND name=?').run(now,ch.id,t.name)}if(cfg){const members=live.get(ch.id);if(!members)continue;for(const [uid,m] of members){if(now-m.last>Math.max(600000,cfg.interval_minutes*60000*2)){members.delete(uid);continue}const key=ch.id+':'+uid;const last=seen.get(key)||0;if(now-last<cfg.interval_minutes*60000)continue;seen.set(key,now);db.prepare('INSERT INTO loyalty(channel,user_id,username,points,watch_minutes) VALUES(?,?,?,?,?) ON CONFLICT(channel,user_id) DO UPDATE SET username=excluded.username,points=points+excluded.points,watch_minutes=watch_minutes+excluded.watch_minutes').run(ch.id,uid,m.username,cfg.points_per_interval,cfg.interval_minutes)}}}catch(err){log(ch.id,'timer-error',err.message)}}},60000).unref();
+ setInterval(async()=>{const channels=db.prepare('SELECT id FROM channels WHERE enabled=1').all();for(const ch of channels){try{const timers=db.prepare('SELECT * FROM timers WHERE channel=? AND enabled=1').all(ch.id);const cfg=db.prepare('SELECT * FROM loyalty_config WHERE channel=? AND enabled=1').get(ch.id);if(!timers.length&&!cfg)continue;const now=Date.now();if(now-(seen.get(ch.id)||0)<60000)continue;seen.set(ch.id,now);const info=(await api(ch.id,'streams?user_id='+ch.id)).data?.length>0;if(!info)continue;for(const t of timers){if(now-(lastViewerChat.get(ch.id)||0)>CHAT_IDLE_MS)continue;if(now-t.last_sent<t.minutes*60000)continue;await say(ch.id,t.message);db.prepare('UPDATE timers SET last_sent=? WHERE channel=? AND name=?').run(now,ch.id,t.name);break}if(cfg){const members=live.get(ch.id);if(!members)continue;for(const [uid,m] of members){if(now-m.last>Math.max(600000,cfg.interval_minutes*60000*2)){members.delete(uid);continue}const key=ch.id+':'+uid;const last=seen.get(key)||0;if(now-last<cfg.interval_minutes*60000)continue;seen.set(key,now);db.prepare('INSERT INTO loyalty(channel,user_id,username,points,watch_minutes) VALUES(?,?,?,?,?) ON CONFLICT(channel,user_id) DO UPDATE SET username=excluded.username,points=points+excluded.points,watch_minutes=watch_minutes+excluded.watch_minutes').run(ch.id,uid,m.username,cfg.points_per_interval,cfg.interval_minutes)}}}catch(err){log(ch.id,'timer-error',err.message)}}},60000).unref();
  return {onMessage,reserved,status};
 }
