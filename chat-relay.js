@@ -1,5 +1,5 @@
 // User-controlled cross-platform chat relay. Only enabled routes are posted.
-export function installRelay({app,db,withUser,csrf,access,isOperator,log}) {
+export function installRelay({app,db,withUser,csrf,access,isOperator,log,observe}) {
  db.exec(`CREATE TABLE IF NOT EXISTS chat_relay_settings(channel TEXT NOT NULL,source TEXT NOT NULL,target TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(channel,source,target));
  CREATE TABLE IF NOT EXISTS chat_relay_events(id INTEGER PRIMARY KEY AUTOINCREMENT,channel TEXT NOT NULL,source TEXT NOT NULL,target TEXT NOT NULL,sender TEXT NOT NULL,content TEXT NOT NULL,status TEXT NOT NULL,created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);`);
  const supported=new Set(['twitch','kick','vpzone']), senders=new Map(),recent=new Map();
@@ -9,6 +9,7 @@ export function installRelay({app,db,withUser,csrf,access,isOperator,log}) {
   if(!supported.has(source)||isBot)return;
   const clean=String(content||'').trim().slice(0,350),sender=String(username||'unknown').replace(/[^a-z0-9_-]/gi,'').slice(0,28);
   if(!clean||clean.startsWith(identityPrefix))return;
+  if(observe)observe(channel,source,username,clean);
   const now=Date.now(),key=channel+':'+source+':'+sender+':'+clean;
   if((recent.get(key)||0)>now-12000)return;
   recent.set(key,now);if(recent.size>1000)for(const [k,v] of recent)if(v<now-60000)recent.delete(k);
