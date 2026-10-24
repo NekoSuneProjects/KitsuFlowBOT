@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """KitsuFlow Voice Companion GUI. Local speech recognition; dashboard clip requests."""
 import json
+import math
+import struct
 import os
 import re
 import queue
@@ -19,7 +21,7 @@ ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) el
 ENV = ROOT / ".env"
 DEFAULTS = {"KITSUFLOW_URL": "https://kitsuflowbot.nekosunevr.co.uk",
             "KITSUFLOW_DEVICE_KEY": "", "KITSUFLOW_VOSK_MODEL": "model/vask",
-            "KITSUFLOW_MIC_DEVICE": "", "KITSUFLOW_STT_ENGINE": "whisper", "KITSUFLOW_WHISPER_MODEL": "auto"}
+            "KITSUFLOW_MIC_DEVICE": "", "KITSUFLOW_TRIGGER_SOUND": "true", "KITSUFLOW_STT_ENGINE": "whisper", "KITSUFLOW_WHISPER_MODEL": "auto"}
 
 def read_env():
     values = DEFAULTS.copy()
@@ -69,6 +71,7 @@ class App:
         self.engine = tk.StringVar(value=self.settings.get("KITSUFLOW_STT_ENGINE", "whisper"))
         self.whisper_model = tk.StringVar(value=self.settings.get("KITSUFLOW_WHISPER_MODEL", "auto"))
         self.gpu = gpu_information()
+        self.trigger_sound = tk.BooleanVar(value=self.settings.get('KITSUFLOW_TRIGGER_SOUND','true').lower() in ('true','1','yes'))
         self.device = tk.StringVar()
         self.devices = {"System default": None}
         self.show_all_mics = tk.BooleanVar(value=False)
@@ -135,6 +138,8 @@ class App:
         self.stop_button = ttk.Button(controls, text="Stop", command=self.stop_listening, state="disabled")
         self.stop_button.pack(side="left", padx=8)
         ttk.Button(controls, text="Save .env", command=self.save).pack(side="right")
+        ttk.Checkbutton(frame, text="Play confirmation sound when clip phrase is detected", variable=self.trigger_sound).pack(anchor="w", pady=(0, 6))
+        ttk.Button(controls, text="Test sound", command=self.play_trigger_sound).pack(side="left", padx=6)
         ttk.Label(frame, textvariable=self.status).pack(anchor="w")
         ttk.Label(frame, textvariable=self.phrase, style="Muted.TLabel").pack(anchor="w")
         ttk.Label(frame, textvariable=self.routing, style="Muted.TLabel").pack(anchor="w")
@@ -154,6 +159,27 @@ class App:
         self.log.see("end")
         self.log.configure(state="disabled")
 
+    def play_trigger_sound(self):
+        if not self.trigger_sound.get():
+            self.push("Enable confirmation sound to hear the test.")
+            return
+        def play():
+            try:
+                import sounddevice as sd
+                import numpy as np
+                rate = 24000
+                # Two gentle notes on the output device, not the microphone.
+                def note(hz, duration):
+                    count = int(rate * duration)
+                    sample = np.arange(count, dtype=np.float32) / rate
+                    envelope = np.minimum(1.0, sample / 0.015) * np.minimum(1.0, (duration - sample) / 0.045)
+                    return (0.14 * np.sin(2 * np.pi * hz * sample) * envelope).astype(np.float32)
+                sound = np.concatenate((note(660, 0.10), np.zeros(int(rate*0.04),dtype=np.float32), note(880,0.14)))
+                sd.play(sound, samplerate=rate, blocking=True)
+            except Exception as exc:
+                self.inbox.put(("log", "Confirmation sound unavailable: " + str(exc)))
+        threading.Thread(target=play, daemon=True).start()
+
     def process_messages(self):
         try:
             while True:
@@ -169,6 +195,8 @@ class App:
                     self.status.set(value[1])
                 elif kind == "start_after_download":
                     self.start()
+                elif kind == "trigger_sound":
+                    self.play_trigger_sound()
                 elif kind == "model_done":
                     self.downloading = False
                     self.download_button.config(state="normal")
@@ -270,6 +298,7 @@ class App:
                 "KITSUFLOW_DEVICE_KEY": self.key.get().strip(),
                 "KITSUFLOW_VOSK_MODEL": self.model.get().strip(),
                 "KITSUFLOW_MIC_DEVICE": "" if selected is None else str(selected),
+                "KITSUFLOW_TRIGGER_SOUND": "true" if self.trigger_sound.get() else "false",
                 "KITSUFLOW_STT_ENGINE": self.engine.get(), "KITSUFLOW_WHISPER_MODEL": self.whisper_model.get()}
 
     def save(self):
@@ -396,6 +425,8 @@ class App:
                         continue
                     last = now
                     send("log", "Voice trigger recognised: " + phrase)
+                    if values.get("KITSUFLOW_TRIGGER_SOUND","true").lower() in ("true","1","yes"):
+                        send("trigger_sound", None)
                     try:
                         output = request(values["KITSUFLOW_URL"], values["KITSUFLOW_DEVICE_KEY"],
                                          "/api/voice-companion/device/trigger", {"phrase": phrase})
