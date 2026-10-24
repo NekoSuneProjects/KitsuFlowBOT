@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 const providers={
- kick:{auth:'https://id.kick.com/oauth/authorize',token:'https://id.kick.com/oauth/token',client:'KICK_CLIENT_ID',secret:'KICK_CLIENT_SECRET',scope:'user:read channel:read events:subscribe'},
+ kick:{auth:'https://id.kick.com/oauth/authorize',token:'https://id.kick.com/oauth/token',client:'KICK_CLIENT_ID',secret:'KICK_CLIENT_SECRET',scope:'user:read channel:read events:subscribe chat:write'},
  vpzone:{auth:'https://vpzone.tv/oauth/authorize',token:'https://vpzone.tv/api/oauth/token',client:'VPZONE_CLIENT_ID',secret:'VPZONE_CLIENT_SECRET',scope:'profile:read dashboard:read chat:read'}
 };
 const clean=s=>String(s??'').slice(0,250);
@@ -68,6 +68,31 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base})
  db.prepare('UPDATE platform_oauth SET access_token=?,refresh_token=?,expires_at=? WHERE channel=? AND platform=?').run(enc(t.access_token),enc(t.refresh_token),Date.now()+Number(t.expires_in||3600)*1000,channel,type);
  return t.access_token;
  }
+ // Kick's official bot mode uses app credentials, not the Twitch shared-bot identity.
+ let appToken=null;
+ async function kickAppToken(){
+  if(appToken&&appToken.expires>Date.now()+60000)return appToken.value;
+  const p=conf('kick');if(!p?.clientId||!p.clientSecret)throw Error('Kick application credentials are missing');
+  const response=await fetch('https://id.kick.com/oauth/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({client_id:p.clientId,client_secret:p.clientSecret,grant_type:'client_credentials'}),signal:AbortSignal.timeout(12000)});
+  if(!response.ok)throw Error('Kick app token failed: '+response.status);
+  const token=await response.json();if(!token.access_token)throw Error('Kick app token unavailable');
+  appToken={value:token.access_token,expires:Date.now()+Number(token.expires_in||3600)*1000};return appToken.value;
+ }
+ async function kickBotSay(channel,text){
+  const linked=db.prepare('SELECT 1 FROM platform_oauth WHERE channel=? AND platform=?').get(channel,'kick');
+  if(!linked)throw Error('Connect Kick before using chat');
+  const content=String(text||'').trim().slice(0,500);if(!content)throw Error('Empty chat message');
+  const token=await kickAppToken();
+  const response=await fetch('https://api.kick.com/public/v1/chat',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({content,type:'bot'}),signal:AbortSignal.timeout(12000)});
+  if(!response.ok)throw Error('Kick bot chat failed: '+response.status);
+  log(channel,'kick-bot-message',content.slice(0,80));return {ok:true};
+ }
+ app.post('/api/platforms/kick/chat',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{
+  await kickBotSay(req.channelId,req.body.message);res.json({ok:true});
+ }));
+ app.get('/api/platforms/linked',withUser,access.channelOnly('editor'),(req,res)=>{
+  res.json({linked:db.prepare('SELECT platform,external_id,display_name FROM platform_oauth WHERE channel=?').all(req.channelId)});
+ });
  app.get('/api/platforms/:platform/channel',withUser,access.channelOnly('editor'),safe(async(req,res)=>{
  const type=req.params.platform;if(!providers[type])return res.sendStatus(404);
  const row=db.prepare('SELECT * FROM platform_oauth WHERE channel=? AND platform=?').get(req.channelId,type);
