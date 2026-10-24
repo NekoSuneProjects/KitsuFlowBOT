@@ -18,11 +18,11 @@ def call(path,data=None):
     req=urllib.request.Request(BASE+path,data=content,headers={"x-voice-worker-key":SECRET,"Content-Type":"application/json"},method="POST" if data is not None else "GET")
     with urllib.request.urlopen(req,timeout=90) as response:return json.load(response)
 
-def monitor(channel,login,phrase,stop):
+def monitor(channel,login,phrase,platform,url,stop):
     source=None;decoder=None
     try:
-        if not re.fullmatch(r"[a-zA-Z0-9_]{3,25}",login):return
-        source=subprocess.Popen(["streamlink","--loglevel","error","--stdout","https://www.twitch.tv/"+login,"worst"],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{2,32}",login):return\n        if platform not in ("twitch","kick","vpzone"):return\n        if platform != "twitch" and url != ("https://kick.com/" if platform == "kick" else "https://vpzone.tv/")+login:return
+        source=subprocess.Popen(["streamlink","--loglevel","error","--stdout",("https://www.twitch.tv/"+login if platform == "twitch" else url),"worst"],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
         decoder=subprocess.Popen(["ffmpeg","-nostdin","-hide_banner","-loglevel","error","-i","pipe:0","-vn","-ac","1","-ar","16000","-f","s16le","pipe:1"],stdin=source.stdout,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
         source.stdout.close()
         recognizer=KaldiRecognizer(model,16000)
@@ -35,8 +35,8 @@ def monitor(channel,login,phrase,stop):
                 if phrase in words and time.monotonic()-last>20:
                     last=time.monotonic()
                     try:
-                        output=call("/internal/voice/detected",{"channel":channel,"transcript":words})
-                        print("Clip",channel,output.get("clip_id"),flush=True)
+                        output=call("/internal/voice/detected" if platform=="twitch" else "/internal/voice/platform/detected",{"channel":channel,"platform":platform,"transcript":words})
+                        print("Voice trigger",platform,channel,output.get("clip_id") or output.get("status"),flush=True)
                     except (urllib.error.HTTPError,Exception) as exc: print("Detection error",channel,str(exc)[:180],flush=True)
     finally:
         for process in [decoder,source]:
@@ -44,19 +44,19 @@ def monitor(channel,login,phrase,stop):
                 process.terminate()
                 try:process.wait(timeout=4)
                 except subprocess.TimeoutExpired:process.kill()
-        with lock:running.pop(channel,None)
+        with lock:running.pop((platform,channel),None)
 
 while True:
     try:
         channels=call("/internal/voice/channels")["channels"]
-        desired={ch["channel"]:ch for ch in channels}
+        desired={(ch.get("platform","twitch"),ch["channel"]):ch for ch in channels}
         with lock:
             for channel,item in list(running.items()):
                 if channel not in desired or desired[channel]["phrase"]!=item["phrase"]:item["stop"].set()
             for channel,item in desired.items():
                 if channel in running or len(running)>=CAP:continue
                 stop=threading.Event()
-                thread=threading.Thread(target=monitor,args=(channel,item["login"],item["phrase"],stop),daemon=True)
+                thread=threading.Thread(target=monitor,args=(item["channel"],item["login"],item["phrase"],item.get("platform","twitch"),item.get("url",""),stop),daemon=True)
                 running[channel]={"stop":stop,"phrase":item["phrase"],"thread":thread}
                 thread.start()
     except Exception as exc:print("Voice scheduler error:",str(exc)[:200],flush=True)
