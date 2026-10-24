@@ -217,46 +217,38 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
   const token=await response.json();if(!token.access_token)throw Error('Kick app token unavailable');
   appToken={value:token.access_token,expires:Date.now()+Number(token.expires_in||3600)*1000};return appToken.value;
  }
+ async function kickBotAccessToken(force=false){
+  const row=db.prepare("SELECT * FROM platform_bot_accounts WHERE platform='kick'").get();
+  if(!row)throw Error('Kick bot account is not connected. Connect a separate bot in Admin Panel.');
+  if(!force&&row.expires_at>Date.now()+120000)return dec(row.access_token);
+  const p=conf('kick');if(!p?.clientId||!p.clientSecret)throw Error('Kick OAuth application credentials missing');
+  const response=await fetch(p.token,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'refresh_token',refresh_token:dec(row.refresh_token),client_id:p.clientId,client_secret:p.clientSecret}),signal:AbortSignal.timeout(12000)});
+  if(!response.ok)throw Error('Kick bot OAuth refresh failed ('+response.status+'). Reconnect the dedicated Kick bot in Admin Panel.');
+  const token=await response.json();
+  if(!token.access_token)throw Error('Kick bot OAuth refresh did not return an access token');
+  db.prepare("UPDATE platform_bot_accounts SET access_token=?,refresh_token=?,expires_at=? WHERE platform='kick'").run(enc(token.access_token),enc(token.refresh_token||dec(row.refresh_token)),Date.now()+Number(token.expires_in||3600)*1000);
+  return token.access_token;
+ }
  async function kickBotSay(channel,text){
-  const linked=db.prepare("SELECT external_id,scopes FROM platform_oauth WHERE channel=? AND platform='kick'").get(channel);
-  if(!linked)throw Error('Connect your Kick broadcaster account before sending chat');
-  const content=String(text||'').trim().slice(0,500);if(!content)throw Error('Empty chat message');
-  const endpoint='https://api.kick.com/public/v1/chat';
-  const post=async(token,body)=>{
-   const response=await fetch(endpoint,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(12000)});
+  const linked=db.prepare("SELECT external_id FROM platform_oauth WHERE channel=? AND platform='kick'").get(channel);
+  if(!linked)throw Error('Connect your Kick broadcaster channel first');
+  const bot=db.prepare("SELECT external_id,display_name FROM platform_bot_accounts WHERE platform='kick'").get();
+  if(!bot)throw Error('A dedicated Kick bot is required. Connect it in Admin Panel.');
+  if(String(bot.external_id)===String(linked.external_id))throw Error('Kick bot and broadcaster must be different accounts');
+  const broadcasterId=Number(linked.external_id);
+  if(!Number.isSafeInteger(broadcasterId)||broadcasterId<1)throw Error('Invalid linked Kick broadcaster ID');
+  const content=String(text||'').trim().slice(0,500);
+  if(!content)throw Error('Empty chat message');
+  const payload={content,type:'user',broadcaster_user_id:broadcasterId};
+  const post=async(token)=>{
+   const response=await fetch('https://api.kick.com/public/v1/chat',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(12000)});
    return {ok:response.ok,status:response.status,body:response.ok?'':(await response.text()).slice(0,300)};
   };
-  // Use Kick app bot identity first, as StreamBOT/backendlive does.
-  let initial;
-  try{
-   initial=await post(await kickAppToken(),{content,type:'bot'});
-   if(initial.ok){log(channel,'kick-bot-message','app');return {ok:true,mode:'app-bot'}}
-   if(initial.status!==401)throw Error('Kick bot chat failed: '+initial.status+' '+initial.body);
-  }catch(err){
-   // Do not silently downgrade network errors or other authorization failures.
-   if(!initial||initial.status!==401)throw err;
-  }
-  appToken=null; // invalidate a possibly revoked/stale app credential
-  log(channel,'kick-chat-auth','App bot token rejected (401); attempting linked broadcaster OAuth');
-  if(!String(linked.scopes||'').split(/\s+/).includes('chat:write'))throw Error('Kick app token rejected (401). Reconnect broadcaster with chat:write scope.');
-  const broadcasterId=Number(linked.external_id);
-  if(!Number.isSafeInteger(broadcasterId)||broadcasterId<=0)throw Error('Kick broadcaster ID invalid');
-  let userToken=await refresh(channel,'kick');
-  const payload={content,type:'user',broadcaster_user_id:broadcasterId};
-  let fallback=await post(userToken,payload);
-  if(fallback.status===401){
-   const row=db.prepare("SELECT refresh_token FROM platform_oauth WHERE channel=? AND platform='kick'").get(channel);
-   const p=conf('kick');
-   const res=await fetch(p.token,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'refresh_token',refresh_token:dec(row.refresh_token),client_id:p.clientId,client_secret:p.clientSecret}),signal:AbortSignal.timeout(12000)});
-   if(!res.ok)throw Error('Kick broadcaster token refresh failed: '+res.status+'; reconnect Kick account');
-   const next=await res.json();
-   if(!next.access_token)throw Error('Kick token refresh missing access token');
-   db.prepare("UPDATE platform_oauth SET access_token=?,refresh_token=?,expires_at=? WHERE channel=? AND platform='kick'").run(enc(next.access_token),enc(next.refresh_token||dec(row.refresh_token)),Date.now()+Number(next.expires_in||3600)*1000,channel);
-   fallback=await post(next.access_token,payload);
-  }
-  if(!fallback.ok)throw Error('Kick bot app token rejected (401); broadcaster fallback failed: '+fallback.status+' '+fallback.body);
-  log(channel,'kick-bot-message','broadcaster-fallback');
-  return {ok:true,mode:'broadcaster-fallback'};
+  let outcome=await post(await kickBotAccessToken());
+  if(outcome.status===401)outcome=await post(await kickBotAccessToken(true));
+  if(!outcome.ok)throw Error('Kick dedicated bot @'+bot.display_name+' chat failed ('+outcome.status+'): '+outcome.body+'. Check bot chat:write access and permissions in the broadcaster channel.');
+  log(channel,'kick-bot-message','dedicated-bot @'+bot.display_name);
+  return {ok:true,mode:'dedicated-bot',bot:bot.display_name};
  }
  relay.register('kick',kickBotSay);
  app.post('/api/platforms/kick/chat',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{
