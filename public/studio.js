@@ -338,6 +338,12 @@ async function connections(){
  if(chatDiag.subscription?.detail)diagnosticCard.append(e('p',chatDiag.subscription.detail,'description'));
  diagnosticCard.append(table(['Event','Detail','Time'],(chatDiag.recentLogs||[]).map(x=>[x.event,x.detail,x.created])));
  c.append(diagnosticCard);
+ const engagementScopes=await api('/api/twitch/engagement-scopes').catch(()=>null);
+ if(engagementScopes?.missing?.length){
+  const missing=card('Twitch event permissions missing','Some subscriptions, Bits or follower events will not work until the broadcaster grants the relevant OAuth scopes. This does not necessarily stop chat commands.');
+  missing.append(e('p','Missing: '+engagementScopes.missing.join(', '),'description'),actions(link('Reconnect broadcaster Twitch permissions','/auth/connect/streamer','primary')));
+  c.append(missing);
+ }
  const relayData=await api('/api/relay').catch(()=>({enabled:false,routes:[],history:[]}));
  const relayCard=card('Cross-platform chat relay','One master toggle. Choose which connected platforms participate; enabled platforms share messages with each other. OBS multi-chat works independently without relay.');
  const relayEnabled=input('Enable cross-platform chat relay',Boolean(relayData.enabled),'checkbox');

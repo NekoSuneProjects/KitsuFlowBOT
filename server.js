@@ -223,7 +223,22 @@ function connectEngagement(channel){
      ['channel.cheer','1',{broadcaster_user_id:channel}],
      ['channel.raid','1',{to_broadcaster_user_id:channel}]
     ];
+    const broadcaster=getAccount(channel);
+    let granted=[];
+    try{granted=JSON.parse(broadcaster?.scopes||'[]')}catch{}
+    const requiredScope={
+     'channel.subscribe':'channel:read:subscriptions',
+     'channel.subscription.gift':'channel:read:subscriptions',
+     'channel.subscription.message':'channel:read:subscriptions',
+     'channel.cheer':'bits:read',
+     'channel.follow':'moderator:read:followers'
+    };
     for(const [name,version,condition] of config){
+     const required=requiredScope[name];
+     if(required&&!granted.includes(required)){
+      log(channel,'twitch-eventsub-missing-scope',name+': '+required+' — broadcaster must reconnect Twitch in Studio to grant access');
+      continue;
+     }
      try{await api(channel,'eventsub/subscriptions','POST',{type:name,version,condition,transport:{method:'websocket',session_id:sid}})}
      catch(err){log(channel,'twitch-eventsub-error',name+': '+err.message)}
     }
@@ -390,6 +405,11 @@ app.get('/api/commands/global',withUser,(req,res)=>res.json({commands:globalList
 app.post('/api/commands/global',withUser,access.channelOnly('editor'),csrf,(req,res)=>{const name=String(req.body.name||'').toLowerCase();if(!GLOBAL_COMMANDS[name]||typeof req.body.enabled!=='boolean')return res.status(400).json({error:'Invalid global command setting'});db.prepare('INSERT INTO global_command_settings(channel,name,enabled) VALUES(?,?,?) ON CONFLICT(channel,name) DO UPDATE SET enabled=excluded.enabled').run(req.channelId,name,req.body.enabled?1:0);res.json({ok:true})});
 app.post('/api/commands/supermod',withUser,access.channelOnly('owner'),csrf,safe(async(req,res)=>{const login=String(req.body.login||'').trim().replace(/^@/,'');if(!/^[a-zA-Z0-9_]{3,25}$/.test(login))throw Error('Enter a Twitch username');const user=await resolveViewer(login);if(!user)throw Error('Twitch user not found');if(req.body.enabled===true)db.prepare('INSERT INTO channel_supermods(channel,user_id,login) VALUES(?,?,?) ON CONFLICT(channel,user_id) DO UPDATE SET login=excluded.login').run(req.channelId,user.id,user.login);else db.prepare('DELETE FROM channel_supermods WHERE channel=? AND user_id=?').run(req.channelId,user.id);res.json({ok:true})}));
 app.get('/commands/:login',(req,res)=>{const login=String(req.params.login||'').toLowerCase();const ch=db.prepare('SELECT id,login FROM channels WHERE LOWER(login)=?').get(login);if(!ch)return res.status(404).send('Channel not found');const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const custom=db.prepare('SELECT name,level,response FROM commands WHERE channel=? ORDER BY name').all(ch.id);const globals=globalListing(ch.id).filter(x=>x.enabled);const lines=[...globals.map(x=>({name:x.name,level:x.level,description:x.description})),...custom.map(x=>({name:x.name,level:x.level,description:x.response}))];res.type('html').send('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+escape(ch.login)+' commands • KitsuFlowBOT</title><style>body{font:16px system-ui;background:#0b111b;color:#f2f7fd;margin:0;padding:32px}main{max-width:850px;margin:auto}h1{color:#48e4c2}section{padding:16px;border:1px solid #304354;background:#151f2d;border-radius:12px;margin:10px 0}small{color:#a9bdca}</style><main><h1>'+escape(ch.login)+' commands</h1><p>Enabled global and custom commands for this channel.</p>'+lines.map(x=>'<section><strong>!'+escape(x.name)+'</strong> <small>('+escape(x.level)+')</small><p>'+escape(x.description)+'</p></section>').join('')+'</main></html>')});
+app.get('/api/twitch/engagement-scopes',withUser,access.channelOnly('owner'),(req,res)=>{
+ const needed=['bits:read','channel:read:subscriptions','moderator:read:followers'];
+ let granted=[];try{granted=JSON.parse(getAccount(req.channelId)?.scopes||'[]')}catch{}
+ res.set('Cache-Control','no-store').json({granted:needed.filter(scope=>granted.includes(scope)),missing:needed.filter(scope=>!granted.includes(scope)),reauthorize_url:'/auth/connect/streamer'});
+});
 app.get('/api/chat-diagnostics',withUser,access.channelOnly('owner'),(req,res)=>{
  const row=chatHealth.get(req.channelId)||{status:'unknown'};
  res.set('Cache-Control','no-store').json({
