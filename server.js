@@ -78,7 +78,27 @@ const scamFilter=createScamFilter({log});
 const cooldowns=new Map();
 const recentChatters=new Map();
 const allowed=(level,e)=>level==='everyone'||e.badges?.some(b=>b.set_id==='broadcaster'||b.set_id==='moderator')||(level==='subscriber'&&e.badges?.some(b=>b.set_id==='subscriber'));
-async function message(e){const ch=db.prepare('SELECT * FROM channels WHERE id=? AND enabled=1').get(e.broadcaster_user_id);if(!ch||e.chatter_user_id===botId())return;
+const sharedCommandSeen=new Map();
+async function message(e){
+ // EventSub broadcaster_user_id is the receiving chat; source_broadcaster_user_id
+ // identifies the originating chat when Twitch mirrors messages in Shared Chat.
+ const destination=String(e.broadcaster_user_id||'');
+ const origin=String(e.source_broadcaster_user_id||destination);
+ const ch=db.prepare('SELECT * FROM channels WHERE id=? AND enabled=1').get(destination);
+ if(!ch||e.chatter_user_id===botId())return;
+ const rawCommand=String(e.message?.text||'').trim();
+ if(rawCommand.startsWith('!')){
+  // Mirrored EventSub notifications have distinct message_id values; the source
+  // message ID identifies the underlying chat message within this destination.
+  const sourceId=String(e.source_message_id||e.message_id||'');
+  if(sourceId){
+   const key=destination+':'+sourceId,now=Date.now();
+   if((sharedCommandSeen.get(key)||0)>now-60000)return;
+   sharedCommandSeen.set(key,now);
+   if(sharedCommandSeen.size>2500)for(const [k,t] of sharedCommandSeen)if(t<now-60000)sharedCommandSeen.delete(k);
+  }
+  if(origin!==destination)log(ch.id,'shared-chat-command',origin+' -> '+destination+': '+rawCommand.slice(0,120));
+ }
 if((e.message?.text||'').trim()){
  const members=recentChatters.get(ch.id)||new Map();recentChatters.set(ch.id,members);
  members.set(e.chatter_user_id,{login:e.chatter_user_login,last:Date.now()});
@@ -102,7 +122,7 @@ try{
 if(await engagement.onMessage(ch,e,value,parts,isMod))return;
 if(await creator.onMessage(ch,e,value,parts,isMod))return;
 if(!cmd?.startsWith('!'))return;
-const globalName=cmd.slice(1);
+const globalName=cmd==='!command'?'commands':cmd.slice(1);
 if(GLOBAL_COMMANDS[globalName]&&isGlobalEnabled(ch.id,globalName)){
  const isOwner=e.chatter_user_id===ch.id;
  const supermod=isOwner||Boolean(db.prepare('SELECT 1 FROM channel_supermods WHERE channel=? AND user_id=?').get(ch.id,e.chatter_user_id));
