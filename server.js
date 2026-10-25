@@ -50,7 +50,17 @@ const STREAMER_SCOPES=[
  'moderator:read:followers','moderator:read:chatters','moderation:read',
  'channel:read:hype_train','channel:read:ads','channel:manage:ads'
 ].join(' ');
-async function say(channel,message){const id=botId();if(!id)throw Error('Connect bot first');await api(id,'chat/messages','POST',{broadcaster_id:channel,sender_id:id,message:String(message).slice(0,500)})}
+async function say(channel,message){
+ const id=botId();if(!id)throw Error('Connect bot first');
+ const response=await api(id,'chat/messages','POST',{broadcaster_id:channel,sender_id:id,message:String(message).slice(0,500)});
+ const delivery=response.data?.[0];
+ if(!delivery||delivery.is_sent!==true){
+  const reason=delivery?.drop_reason?.message||delivery?.drop_reason?.code||'Twitch did not confirm delivery';
+  log(channel,'chat-send-failed',String(reason).slice(0,260));
+  throw Error('Chat message not delivered: '+reason);
+ }
+ return delivery;
+}
 async function lookup(login){const id=botId();if(!id)throw Error('Bot not connected');const u=await api(id,'users?login='+encodeURIComponent(login.replace(/^@/,'')));if(!u.data?.[0])throw Error('User not found');return u.data[0].id}
 async function moderate(channel,user,duration,reason){const id=botId();if(!id)throw Error('Connect bot first');if(id===user||channel===user)throw Error('Cannot moderate bot or broadcaster');await api(id,'moderation/bans?broadcaster_id='+channel+'&moderator_id='+id,'POST',{data:{user_id:user,...(duration?{duration}:{}),reason:reason||'KitsuFlowBOT moderation'}})}
 async function clip(channel){const id=botId();if(!id)throw Error('Connect the global bot first');const bot=getAccount(id);const scopes=JSON.parse(bot?.scopes||'[]');if(!scopes.includes('clips:edit'))throw Error('Shared Twitch bot is missing clips:edit. Operator must reauthorize the bot in Admin Panel using Connect/Authorize Bot (reconnecting EventSub alone does not grant permissions).');const data=await api(id,'clips?broadcaster_id='+encodeURIComponent(channel)+'&duration=60','POST');const c=data.data?.[0];if(!c)throw Error('No live clip returned');log(channel,'clip',c.edit_url||c.id);return c}
@@ -410,6 +420,12 @@ app.get('/api/twitch/engagement-scopes',withUser,access.channelOnly('owner'),(re
  let granted=[];try{granted=JSON.parse(getAccount(req.channelId)?.scopes||'[]')}catch{}
  res.set('Cache-Control','no-store').json({granted:needed.filter(scope=>granted.includes(scope)),missing:needed.filter(scope=>!granted.includes(scope)),reauthorize_url:'/auth/connect/streamer'});
 });
+app.post('/api/chat-diagnostics/test-send',withUser,access.channelOnly('owner'),csrf,safe(async(req,res)=>{
+ const target=req.channelId;
+ await say(target,'KitsuFlowBOT chat test: messaging is connected.');
+ log(target,'chat-send-test','Twitch confirmed test message sent');
+ res.set('Cache-Control','no-store').json({ok:true,message:'Twitch confirmed the test message was sent'});
+}));
 app.get('/api/chat-diagnostics',withUser,access.channelOnly('owner'),(req,res)=>{
  const row=chatHealth.get(req.channelId)||{status:'unknown'};
  res.set('Cache-Control','no-store').json({
@@ -418,7 +434,7 @@ app.get('/api/chat-diagnostics',withUser,access.channelOnly('owner'),(req,res)=>
   socketConnected:sockets.get('bot')?.readyState===WebSocket.OPEN,
   channelEnabled:Boolean(db.prepare('SELECT enabled FROM channels WHERE id=?').get(req.channelId)?.enabled),
   subscription:row,
-  recentLogs:db.prepare("SELECT event,detail,created FROM logs WHERE channel=? AND (event LIKE 'chat-eventsub%' OR event='shared-chat-command' OR event='standalone-chat-command' OR event='error') ORDER BY id DESC LIMIT 15").all(req.channelId)
+  recentLogs:db.prepare("SELECT event,detail,created FROM logs WHERE channel=? AND (event LIKE 'chat-eventsub%' OR event='shared-chat-command' OR event='standalone-chat-command' OR event='chat-send-failed' OR event='chat-send-test' OR event='error') ORDER BY id DESC LIMIT 15").all(req.channelId)
  });
 });
 app.get('/api/state',withUser,(req,res)=>{const ch=db.prepare('SELECT * FROM channels WHERE id=?').get(req.channelId);res.json({channel:ch,role:access.role(req.session.uid,req.channelId),isOperator:isOperator(req.session.uid),bot:(()=>{const b=getAccount(botId());return b?{id:b.id,login:b.login}:null})(),commands:db.prepare('SELECT * FROM commands WHERE channel=? ORDER BY name').all(req.channelId),logs:db.prepare('SELECT * FROM logs WHERE channel=? ORDER BY id DESC LIMIT 30').all(req.channelId)})});
