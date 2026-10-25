@@ -20,7 +20,7 @@ async function playQueue(){
 const empty=document.createElement('div');empty.className='placeholder';empty.textContent='Waiting for messages from connected channels…';feed.append(empty);
 function status(data){
  statusEl.replaceChildren();
- const names={twitch:'Twitch',kick:'Kick',vpzone:'VPZone'};
+ const names={twitch:'Twitch',kick:'Kick',vpzone:'VPZone',tiktok:'TikTok'};
  for(const platform of ['twitch','kick','vpzone']){
   const raw=data?.[platform]?.status||'pending';
   const value=['connected','pending','failed'].includes(raw)?raw:'pending';
