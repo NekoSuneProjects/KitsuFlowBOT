@@ -231,15 +231,66 @@ function connectEngagement(channel){
  ws.on('error',err=>log(channel,'twitch-engagement-ws-error',err.message));
 }
 const sockets=new Map();
-async function connectChat(){const id=botId();if(!id)return;
-const prev=sockets.get('bot');if(prev)prev.close();
-let ws=new WebSocket('wss://eventsub.wss.twitch.tv/ws');sockets.set('bot',ws);
-ws.on('message',async raw=>{try{const d=JSON.parse(raw);const type=d.metadata?.message_type;
-if(type==='session_reconnect'){ws.close();ws=new WebSocket(d.payload.session.reconnect_url);sockets.set('bot',ws);return}
-if(type==='notification'){if(d.metadata.subscription_type==='channel.chat.message'){await message(d.payload.event);return}const ev=d.payload.event||{};const target=String(ev.broadcaster_user_id||ev.to_broadcaster_user_id||'');if(target&&db.prepare('SELECT 1 FROM channels WHERE id=?').get(target))streamActivity.emit(target,'twitch',d.metadata.subscription_type,ev.user_name||ev.from_broadcaster_user_name||'',ev.message?.text||ev.tier||String(ev.bits||ev.viewers||''),d.metadata.message_id);return}
-if(type==='session_welcome'){const channels=db.prepare('SELECT id FROM channels WHERE enabled=1').all();for(const ch of channels){try{await api(id,'eventsub/subscriptions','POST',{type:'channel.chat.message',version:'1',condition:{broadcaster_user_id:ch.id,user_id:id},transport:{method:'websocket',session_id:d.payload.session.id}})}catch(err){log(ch.id,'error','EventSub: '+err.message)}}}
-}catch(e){console.error('EventSub',e.message)}});
-ws.on('close',()=>{if(sockets.get('bot')===ws)setTimeout(connectChat,5000)});ws.on('error',e=>console.error('WS',e.message))}
+const chatHealth=new Map();
+let chatGeneration=0;
+async function connectChat(){
+ const id=botId();if(!id)return;
+ const generation=++chatGeneration;
+ const previous=sockets.get('bot');
+ if(previous){sockets.delete('bot');previous.close()}
+ function openSocket(url,isReconnect=false){
+  if(generation!==chatGeneration)return;
+  const ws=new WebSocket(url);
+  sockets.set('bot',ws);
+  ws.on('message',async raw=>{
+   try{
+    const d=JSON.parse(String(raw)),type=d.metadata?.message_type;
+    if(type==='session_reconnect'){
+     // Twitch sends a reconnect URL; the replacement must have the SAME handlers.
+     const next=d.payload?.session?.reconnect_url;
+     if(next){openSocket(next,true);ws.close()}
+     return;
+    }
+    if(type==='notification'){
+     if(d.metadata.subscription_type==='channel.chat.message'){
+      const event=d.payload?.event||{},channel=String(event.broadcaster_user_id||'');
+      const state=chatHealth.get(channel)||{};
+      chatHealth.set(channel,{...state,lastMessageAt:Date.now(),lastMessageId:String(event.source_message_id||event.message_id||'')});
+      await message(event);return;
+     }
+     const ev=d.payload?.event||{};
+     const target=String(ev.broadcaster_user_id||ev.to_broadcaster_user_id||'');
+     if(target&&db.prepare('SELECT 1 FROM channels WHERE id=?').get(target))streamActivity.emit(target,'twitch',d.metadata.subscription_type,ev.user_name||ev.from_broadcaster_user_name||'',ev.message?.text||ev.tier||String(ev.bits||ev.viewers||''),d.metadata.message_id);
+     return;
+    }
+    if(type==='session_welcome'){
+     if(isReconnect)return; // Twitch preserves existing EventSub subscriptions across reconnect URLs.
+     const sessionId=d.payload.session.id;
+     for(const ch of db.prepare('SELECT id FROM channels WHERE enabled=1').all()){
+      chatHealth.set(ch.id,{status:'subscribing',updatedAt:Date.now()});
+      try{
+       await api(id,'eventsub/subscriptions','POST',{type:'channel.chat.message',version:'1',condition:{broadcaster_user_id:ch.id,user_id:id},transport:{method:'websocket',session_id:sessionId}});
+       chatHealth.set(ch.id,{status:'subscribed',updatedAt:Date.now()});
+       log(ch.id,'chat-eventsub','Subscribed to chat messages');
+      }catch(err){
+       chatHealth.set(ch.id,{status:'failed',detail:err.message.slice(0,250),updatedAt:Date.now()});
+       log(ch.id,'chat-eventsub-error',err.message);
+      }
+     }
+    }
+   }catch(err){console.error('Chat EventSub:',err.message)}
+  });
+  ws.on('close',()=>{
+   if(generation===chatGeneration&&sockets.get('bot')===ws){
+    sockets.delete('bot');
+    const handle=setTimeout(()=>{if(generation===chatGeneration)void connectChat()},5000);
+    handle.unref?.();
+   }
+  });
+  ws.on('error',err=>console.error('Chat EventSub socket:',err.message));
+ }
+ openSocket('wss://eventsub.wss.twitch.tv/ws');
+}
 const app=express();app.set('trust proxy',process.env.TRUST_PROXY==='true'?1:false);app.use(express.json({limit:'256kb',verify:(req,res,buffer)=>{if(req.path==='/webhooks/kick')req.rawBody=Buffer.from(buffer)}}));
 const Store=SQLiteStoreFactory(session);
 app.use(session({store:new Store({db:'sessions.sqlite',dir:'data'}),name:'sn.sid',secret:process.env.SESSION_SECRET,resave:false,saveUninitialized:false,cookie:{httpOnly:true,sameSite:'lax',secure:BASE.startsWith('https:'),maxAge:86400000}}));
@@ -336,6 +387,17 @@ app.get('/api/commands/global',withUser,(req,res)=>res.json({commands:globalList
 app.post('/api/commands/global',withUser,access.channelOnly('editor'),csrf,(req,res)=>{const name=String(req.body.name||'').toLowerCase();if(!GLOBAL_COMMANDS[name]||typeof req.body.enabled!=='boolean')return res.status(400).json({error:'Invalid global command setting'});db.prepare('INSERT INTO global_command_settings(channel,name,enabled) VALUES(?,?,?) ON CONFLICT(channel,name) DO UPDATE SET enabled=excluded.enabled').run(req.channelId,name,req.body.enabled?1:0);res.json({ok:true})});
 app.post('/api/commands/supermod',withUser,access.channelOnly('owner'),csrf,safe(async(req,res)=>{const login=String(req.body.login||'').trim().replace(/^@/,'');if(!/^[a-zA-Z0-9_]{3,25}$/.test(login))throw Error('Enter a Twitch username');const user=await resolveViewer(login);if(!user)throw Error('Twitch user not found');if(req.body.enabled===true)db.prepare('INSERT INTO channel_supermods(channel,user_id,login) VALUES(?,?,?) ON CONFLICT(channel,user_id) DO UPDATE SET login=excluded.login').run(req.channelId,user.id,user.login);else db.prepare('DELETE FROM channel_supermods WHERE channel=? AND user_id=?').run(req.channelId,user.id);res.json({ok:true})}));
 app.get('/commands/:login',(req,res)=>{const login=String(req.params.login||'').toLowerCase();const ch=db.prepare('SELECT id,login FROM channels WHERE LOWER(login)=?').get(login);if(!ch)return res.status(404).send('Channel not found');const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const custom=db.prepare('SELECT name,level,response FROM commands WHERE channel=? ORDER BY name').all(ch.id);const globals=globalListing(ch.id).filter(x=>x.enabled);const lines=[...globals.map(x=>({name:x.name,level:x.level,description:x.description})),...custom.map(x=>({name:x.name,level:x.level,description:x.response}))];res.type('html').send('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+escape(ch.login)+' commands • KitsuFlowBOT</title><style>body{font:16px system-ui;background:#0b111b;color:#f2f7fd;margin:0;padding:32px}main{max-width:850px;margin:auto}h1{color:#48e4c2}section{padding:16px;border:1px solid #304354;background:#151f2d;border-radius:12px;margin:10px 0}small{color:#a9bdca}</style><main><h1>'+escape(ch.login)+' commands</h1><p>Enabled global and custom commands for this channel.</p>'+lines.map(x=>'<section><strong>!'+escape(x.name)+'</strong> <small>('+escape(x.level)+')</small><p>'+escape(x.description)+'</p></section>').join('')+'</main></html>')});
+app.get('/api/chat-diagnostics',withUser,access.channelOnly('owner'),(req,res)=>{
+ const row=chatHealth.get(req.channelId)||{status:'unknown'};
+ res.set('Cache-Control','no-store').json({
+  channel:req.channelId,
+  botConnected:Boolean(botId()),
+  socketConnected:sockets.get('bot')?.readyState===WebSocket.OPEN,
+  channelEnabled:Boolean(db.prepare('SELECT enabled FROM channels WHERE id=?').get(req.channelId)?.enabled),
+  subscription:row,
+  recentLogs:db.prepare("SELECT event,detail,created FROM logs WHERE channel=? AND (event LIKE 'chat-eventsub%' OR event='shared-chat-command' OR event='error') ORDER BY id DESC LIMIT 15").all(req.channelId)
+ });
+});
 app.get('/api/state',withUser,(req,res)=>{const ch=db.prepare('SELECT * FROM channels WHERE id=?').get(req.channelId);res.json({channel:ch,role:access.role(req.session.uid,req.channelId),isOperator:isOperator(req.session.uid),bot:(()=>{const b=getAccount(botId());return b?{id:b.id,login:b.login}:null})(),commands:db.prepare('SELECT * FROM commands WHERE channel=? ORDER BY name').all(req.channelId),logs:db.prepare('SELECT * FROM logs WHERE channel=? ORDER BY id DESC LIMIT 30').all(req.channelId)})});
 app.post('/api/settings',withUser,access.channelOnly('owner'),csrf,(req,res)=>{if(req.body.enabled===true&&!botId())return res.status(409).json({error:'Shared bot is not connected yet'});db.prepare('UPDATE channels SET enabled=?,links=? WHERE id=?').run(req.body.enabled===true?1:0,req.body.links===true?1:0,req.channelId);connectChat();res.json({ok:true})});
 app.post('/api/channel/disconnect',withUser,access.channelOnly('owner'),csrf,(req,res)=>{const id=req.channelId;db.prepare('UPDATE channels SET enabled=0 WHERE id=?').run(id);db.prepare('DELETE FROM accounts WHERE id=? AND id != ?').run(id,botId()||'');connectChat();req.session.destroy(()=>res.json({ok:true}))});

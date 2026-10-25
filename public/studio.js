@@ -332,6 +332,12 @@ async function connections(){
    notify('Ownership challenge created. Send the code from your own TikTok LIVE chat.');
   }),btn('Check verification (20 sec)',async()=>{const x=await api('/api/tiktok-inbound/verify/check','POST',{});notify(x.verified?'TikTok account verified!':'Verification incomplete');await reloadView()}),btn('Save TikTok receiver',async()=>{await api('/api/tiktok-inbound','POST',{username:tikUser.value(),enabled:tikEnabled.value()});notify('TikTok receiver saved');await reloadView()},'primary')),challenge);
  c.append(tiktokCard);
+ const chatDiag=await api('/api/chat-diagnostics').catch(err=>({error:err.message}));
+ const diagnosticCard=card('Twitch chat command diagnostics','Shows the Twitch bot connection and whether this channel subscribed to chat events. A subscribed status does not guarantee Twitch is delivering messages.');
+ diagnosticCard.append(e('p','Bot socket: '+(chatDiag.socketConnected?'Connected':'Disconnected')+' · Channel enabled: '+(chatDiag.channelEnabled?'Yes':'No')+' · Chat EventSub: '+(chatDiag.subscription?.status||chatDiag.error||'Unknown'),'description'));
+ if(chatDiag.subscription?.detail)diagnosticCard.append(e('p',chatDiag.subscription.detail,'description'));
+ diagnosticCard.append(table(['Event','Detail','Time'],(chatDiag.recentLogs||[]).map(x=>[x.event,x.detail,x.created])));
+ c.append(diagnosticCard);
  const relayData=await api('/api/relay').catch(()=>({enabled:false,routes:[],history:[]}));
  const relayCard=card('Cross-platform chat relay','One master toggle. Choose which connected platforms participate; enabled platforms share messages with each other. OBS multi-chat works independently without relay.');
  const relayEnabled=input('Enable cross-platform chat relay',Boolean(relayData.enabled),'checkbox');
