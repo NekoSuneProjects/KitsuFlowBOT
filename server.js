@@ -14,6 +14,7 @@ import {installVoiceCompanion} from './voice-companion.js';
 import {installAccess} from './access.js';
 import {installPlatforms} from './platform-integrations.js';
 import {installRelay} from './chat-relay.js';
+import {installTikTokInbound} from './tiktok-inbound.js';
 import {installCreatorTools} from './creator-tools.js';
 import {createScamFilter} from './scam-filter.js';
 
