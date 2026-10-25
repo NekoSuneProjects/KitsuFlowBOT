@@ -52,7 +52,7 @@ const STREAMER_SCOPES=[
 async function say(channel,message){const id=botId();if(!id)throw Error('Connect bot first');await api(id,'chat/messages','POST',{broadcaster_id:channel,sender_id:id,message:String(message).slice(0,500)})}
 async function lookup(login){const id=botId();if(!id)throw Error('Bot not connected');const u=await api(id,'users?login='+encodeURIComponent(login.replace(/^@/,'')));if(!u.data?.[0])throw Error('User not found');return u.data[0].id}
 async function moderate(channel,user,duration,reason){const id=botId();if(!id)throw Error('Connect bot first');if(id===user||channel===user)throw Error('Cannot moderate bot or broadcaster');await api(id,'moderation/bans?broadcaster_id='+channel+'&moderator_id='+id,'POST',{data:{user_id:user,...(duration?{duration}:{}),reason:reason||'KitsuFlowBOT moderation'}})}
-async function clip(channel){const id=botId();if(!id)throw Error('Connect the global bot first');const data=await api(id,'clips?broadcaster_id='+encodeURIComponent(channel)+'&duration=60','POST');const c=data.data?.[0];if(!c)throw Error('No live clip returned');log(channel,'clip',c.edit_url||c.id);return c}
+async function clip(channel){const id=botId();if(!id)throw Error('Connect the global bot first');const bot=getAccount(id);const scopes=JSON.parse(bot?.scopes||'[]');if(!scopes.includes('clips:edit'))throw Error('Shared Twitch bot is missing clips:edit. Operator must reauthorize the bot in Admin Panel using Connect/Authorize Bot (reconnecting EventSub alone does not grant permissions).');const data=await api(id,'clips?broadcaster_id='+encodeURIComponent(channel)+'&duration=60','POST');const c=data.data?.[0];if(!c)throw Error('No live clip returned');log(channel,'clip',c.edit_url||c.id);return c}
 const GLOBAL_COMMANDS={
  commands:{level:'everyone',description:'Show this channel\'s public commands page'},
  accountage:{level:'everyone',description:'Show Twitch account age'},
@@ -305,6 +305,7 @@ app.post('/api/scam-protection',withUser,access.channelOnly('owner'),csrf,(req,r
  res.json({ok:true});
 });
 app.get('/api/admin/scam-feeds',withUser,requireAdmin,(req,res)=>res.json(scamFilter.status()));
+app.get('/api/admin/bot/scopes',withUser,requireAdmin,(req,res)=>{const bot=getAccount(botId());const granted=JSON.parse(bot?.scopes||'[]');res.json({connected:Boolean(bot),granted,missing:BOT_SCOPES.split(' ').filter(scope=>!granted.includes(scope)),reauthorize_url:'/auth/connect/bot'})});
 app.get('/api/admin/bot/status',withUser,requireAdmin,(req,res)=>{
  const id=botId(),b=getAccount(id);
  res.json({admins_configured:adminIds.size,bot:b?{id:b.id,login:b.login,scopes:JSON.parse(b.scopes||'[]')}:null,connected:Boolean(b)});
