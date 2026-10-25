@@ -117,5 +117,5 @@ export function installTikTokInbound({app,db,withUser,csrf,access,relay,log}){
   void start(req.channelId);res.json({ok:true,receive_only:true});
  });
  for(const row of db.prepare('SELECT channel FROM tiktok_inbound WHERE enabled=1').all())void start(row.channel);
- return {stop};
+ return {stop,status:channel=>states.get(channel)||{status:'stopped'}};
 }
