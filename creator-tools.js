@@ -168,7 +168,7 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
   res.set('Cache-Control','no-store').json({messages,tts_enabled:Boolean(req.source.tts_enabled),tts_rate:req.source.tts_rate,tts_volume:req.source.tts_volume,tts_provider:req.source.tts_provider,tts_voice:req.source.tts_voice,tts_lang:req.source.tts_lang,tts_pitch:req.source.tts_pitch,tts_max_length:req.source.tts_max_length,tts_cooldown:req.source.tts_cooldown,tts_template:req.source.tts_template,tts_platforms:JSON.parse(req.source.tts_platforms||'[]'),connections:providerStatus(req.source.channel)});
  });
  function observe(channel,platform,sender,content,metadata={}){
-  if(!['twitch','kick','vpzone'].includes(platform))return;
+  if(!['twitch','kick','vpzone','tiktok'].includes(platform))return;
   const msg=String(content||'').trim().slice(0,350);
   if(!msg)return;
   const fragments=Array.isArray(metadata.fragments)?metadata.fragments.slice(0,90).map(f=>({type:String(f.type||'text'),text:String(f.text||'').slice(0,350),id:String(f.emote?.id||f.emote?.emote_id||f.id||'').slice(0,80),url:String(f.url||'').slice(0,300)})):[];
