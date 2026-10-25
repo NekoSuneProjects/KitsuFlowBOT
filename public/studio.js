@@ -323,7 +323,14 @@ async function connections(){
  const tiktokCard=card('TikTok LIVE incoming chat (receive only)','Reads public TikTok LIVE comments using an unofficial connector. No TikTok login, app permission, or outbound posting is required. For relay, enable TikTok as a source and choose Twitch/Kick/VPZone destinations below.');
  const tikUser=input('TikTok LIVE username',tiktokConfig.username||'');
  const tikEnabled=input('Connect to TikTok LIVE chat',Boolean(tiktokConfig.enabled),'checkbox');
- tiktokCard.append(tikUser.node,tikEnabled.node,e('p','Connection: '+(tiktokConfig.status?.status||'unknown')+(tiktokConfig.status?.detail?' — '+tiktokConfig.status.detail:''),'description'),actions(btn('Save TikTok receiver',async()=>{await api('/api/tiktok-inbound','POST',{username:tikUser.value(),enabled:tikEnabled.value()});notify('TikTok receiver saved');await reloadView()},'primary')));
+ const proof=e('div','', 'description');
+ const challenge=e('div','','stack');
+ tiktokCard.append(tikUser.node,tikEnabled.node,e('p','Verification: '+(tiktokConfig.verified?'Verified':'Required')+' · Connection: '+(tiktokConfig.status?.status||'unknown')+(tiktokConfig.status?.detail?' — '+tiktokConfig.status.detail:''),'description'),
+  actions(btn('Generate ownership code',async()=>{
+   const x=await api('/api/tiktok-inbound/verify/start','POST',{username:tikUser.value()});
+   challenge.replaceChildren(e('p','Start a TikTok LIVE broadcast. While checking verification, post this exact code from your broadcaster account in LIVE chat:','description'),e('strong',x.code));
+   notify('Ownership challenge created. Send the code from your own TikTok LIVE chat.');
+  }),btn('Check verification (20 sec)',async()=>{const x=await api('/api/tiktok-inbound/verify/check','POST',{});notify(x.verified?'TikTok account verified!':'Verification incomplete');await reloadView()}),btn('Save TikTok receiver',async()=>{await api('/api/tiktok-inbound','POST',{username:tikUser.value(),enabled:tikEnabled.value()});notify('TikTok receiver saved');await reloadView()},'primary')),challenge);
  c.append(tiktokCard);
  const relayData=await api('/api/relay').catch(()=>({enabled:false,routes:[],history:[]}));
  const relayCard=card('Cross-platform chat relay','One master toggle. Choose which connected platforms participate; enabled platforms share messages with each other. OBS multi-chat works independently without relay.');

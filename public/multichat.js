@@ -21,7 +21,7 @@ const empty=document.createElement('div');empty.className='placeholder';empty.te
 function status(data){
  statusEl.replaceChildren();
  const names={twitch:'Twitch',kick:'Kick',vpzone:'VPZone',tiktok:'TikTok'};
- for(const platform of ['twitch','kick','vpzone']){
+ for(const platform of ['twitch','kick','vpzone','tiktok']){
   const raw=data?.[platform]?.status||'pending';
   const value=['connected','pending','failed'].includes(raw)?raw:'pending';
   const item=document.createElement('div');
@@ -29,7 +29,7 @@ function status(data){
   item.setAttribute('role','status');
   item.setAttribute('aria-label',names[platform]+': '+value);
   item.title=names[platform]+' — '+value+' — '+String(data?.[platform]?.detail||'Awaiting connection');
-  const badge=document.createElement('span');badge.className='connection-brand';badge.textContent=platform==='twitch'?'T':platform==='kick'?'K':'V';
+  const badge=document.createElement('span');badge.className='connection-brand';badge.textContent=platform==='twitch'?'T':platform==='kick'?'K':platform==='tiktok'?'♪':'V';
   const name=document.createElement('span');name.className='connection-name';name.textContent=names[platform];
   const mark=document.createElement('span');mark.className='connection-mark';
   mark.textContent=value==='connected'?'✓':value==='failed'?'!':'';

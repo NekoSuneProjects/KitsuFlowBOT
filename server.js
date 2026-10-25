@@ -246,7 +246,7 @@ app.get('/api/admin/logs',withUser,(req,res)=>{if(!isOperator(req.session.uid))r
 const creatorTools=installCreatorTools({app,db,withUser,csrf,access,enc,dec});
 const relay=installRelay({app,db,withUser,csrf,access,isOperator,log,observe:creatorTools.observe});
 relay.register('twitch',async(channel,text)=>say(channel,text));
-installTikTokInbound({app,db,withUser,csrf,access,relay,log});
+const tiktokRuntime=installTikTokInbound({app,db,withUser,csrf,access,relay,log});
 // Existing studio endpoints resolve the selected channel, not the login identity.
 app.use(['/api/state','/api/settings','/api/commands','/api/clip','/api/moderate','/api/engagement','/api/creator'],withUser,(req,res,next)=>{const channel=access.channelFor(req);if(!channel)return res.status(403).json({error:'No channel access'});if(req.path.startsWith('/api/settings')&&!access.can(req.session.uid,channel,'owner'))return res.status(403).json({error:'Owner access required'});if(req.method!=='GET'){const required=req.path.startsWith('/api/moderate')||req.path.startsWith('/api/settings')||req.path.startsWith('/api/clip')||req.path.startsWith('/api/creator/queue')||req.path.startsWith('/api/creator/campaign/draw')||req.path.startsWith('/api/creator/redeem')?'bot_supervisor':'editor';if(!access.can(req.session.uid,channel,required))return res.status(403).json({error:'Insufficient channel permissions'});}req.channelId=channel;next()});
 app.get('/api/admin/overview',withUser,(req,res)=>{if(!isOperator(req.session.uid))return res.status(403).json({error:'Operator access required'});const b=getAccount(botId());const channels=db.prepare('SELECT id,login,enabled FROM channels ORDER BY login').all();res.set('Cache-Control','no-store').json({operator:true,bot:b?{id:b.id,login:b.login,display:b.display,expires:b.expires,scopes:JSON.parse(b.scopes||'[]')}:null,channels,enabled_count:channels.filter(x=>x.enabled).length,connection_status:b?(sockets.get('bot')?.readyState===1?'connected':'disconnected'):'not_configured'});});
@@ -330,7 +330,7 @@ installVoiceCompanion({app,db,withUser,csrf,access,api,clip,log,say});
 const platformRuntime=installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,relay,streamActivity,twitchApi:api});
 creatorTools.setProviderStatus(channel=>{
  const bot=sockets.get('bot');
- return {twitch:{status:!botId()?'pending':bot?.readyState===WebSocket.OPEN?'connected':bot?.readyState===WebSocket.CONNECTING?'pending':'failed',detail:!botId()?'Shared bot not connected':'Twitch EventSub session'},...platformRuntime.chatStatus(channel)};
+ return {twitch:{status:!botId()?'pending':bot?.readyState===WebSocket.OPEN?'connected':bot?.readyState===WebSocket.CONNECTING?'pending':'failed',detail:!botId()?'Shared bot not connected':'Twitch EventSub session'},...platformRuntime.chatStatus(channel),tiktok:(()=>{const status=tiktokRuntime.status(channel);return {status:status.status==='connected'?'connected':status.status==='error'?'failed':'pending',detail:status.status+(status.username?' @'+status.username:'')}})()};
 });
 app.get('/dashboard',(req,res)=>{res.set('Cache-Control','no-store, max-age=0');return req.session.uid?res.sendFile(path.resolve('public/dashboard.html')):res.redirect('/login')});
 app.get('/login',(req,res)=>req.session.uid?res.redirect('/dashboard'):res.sendFile(path.resolve('public/login.html')));

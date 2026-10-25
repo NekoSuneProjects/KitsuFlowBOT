@@ -91,7 +91,7 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
   const platforms=req.body.tts_platforms??['twitch','kick','vpzone'];
   if(!Number.isFinite(pitch)||pitch<0||pitch>2||!Number.isInteger(maxLength)||maxLength<20||maxLength>500||
      !Number.isInteger(cooldown)||cooldown<0||cooldown>600||!Array.isArray(platforms)||platforms.length>3||
-     platforms.some(p=>!['twitch','kick','vpzone'].includes(p))||new Set(platforms).size!==platforms.length||
+     platforms.some(p=>!['twitch','kick','vpzone','tiktok'].includes(p))||new Set(platforms).size!==platforms.length||
      !/^[a-zA-Z]{2,4}(?:-[a-zA-Z0-9]{2,8})*$/.test(lang))
    return res.status(400).json({error:'Invalid TTS voice, language or spam settings'});
   db.prepare('UPDATE multichat_sources SET tts_enabled=?,tts_rate=?,tts_volume=?,tts_provider=?,tts_voice=?,tts_lang=?,tts_pitch=?,tts_max_length=?,tts_cooldown=?,tts_template=?,tts_platforms=? WHERE channel=?')
