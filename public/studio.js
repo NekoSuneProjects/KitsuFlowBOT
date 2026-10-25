@@ -319,12 +319,18 @@ async function connections(){
    }else row.append(e('span','Not configured','pill'));
    providerCard.append(row);
  }
+ const tiktokConfig=await api('/api/tiktok-inbound').catch(()=>({username:'',enabled:false,status:{status:'unavailable'}}));
+ const tiktokCard=card('TikTok LIVE incoming chat (receive only)','Reads public TikTok LIVE comments using an unofficial connector. No TikTok login, app permission, or outbound posting is required. For relay, enable TikTok as a source and choose Twitch/Kick/VPZone destinations below.');
+ const tikUser=input('TikTok LIVE username',tiktokConfig.username||'');
+ const tikEnabled=input('Connect to TikTok LIVE chat',Boolean(tiktokConfig.enabled),'checkbox');
+ tiktokCard.append(tikUser.node,tikEnabled.node,e('p','Connection: '+(tiktokConfig.status?.status||'unknown')+(tiktokConfig.status?.detail?' — '+tiktokConfig.status.detail:''),'description'),actions(btn('Save TikTok receiver',async()=>{await api('/api/tiktok-inbound','POST',{username:tikUser.value(),enabled:tikEnabled.value()});notify('TikTok receiver saved');await reloadView()},'primary')));
+ c.append(tiktokCard);
  const relayData=await api('/api/relay').catch(()=>({enabled:false,routes:[],history:[]}));
  const relayCard=card('Cross-platform chat relay','One master toggle. Choose which connected platforms participate; enabled platforms share messages with each other. OBS multi-chat works independently without relay.');
  const relayEnabled=input('Enable cross-platform chat relay',Boolean(relayData.enabled),'checkbox');
  const active=new Set((relayData.routes||[]).filter(r=>r.enabled).flatMap(r=>[r.source,r.target]));
  const selected={};
- for(const platform of ['twitch','kick','vpzone'])selected[platform]=input('Include '+platform.toUpperCase(),active.has(platform),'checkbox');
+ for(const platform of ['twitch','kick','vpzone','tiktok'])selected[platform]=input('Include '+platform.toUpperCase()+(platform==='tiktok'?' (receive only)':''),active.has(platform),'checkbox');
  relayCard.append(relayEnabled.node,h('div','kf-platforms',...Object.values(selected).map(x=>x.node)),actions(btn('Save relay settings',async()=>{
   const platforms=Object.entries(selected).filter(([,control])=>control.value()).map(([name])=>name);
   await api('/api/relay/group','POST',{enabled:relayEnabled.value(),platforms});
