@@ -86,6 +86,9 @@ async function message(e){
  const origin=String(e.source_broadcaster_user_id||destination);
  const ch=db.prepare('SELECT * FROM channels WHERE id=? AND enabled=1').get(destination);
  if(!ch||e.chatter_user_id===botId())return;
+ // Standalone: source_broadcaster_user_id is null. Stream Together: a message
+ // can be mirrored into this destination, but source-only events belong to the origin.
+ if(origin!==destination&&e.is_source_only===true)return;
  const rawCommand=String(e.message?.text||'').trim();
  if(rawCommand.startsWith('!')){
   // Mirrored EventSub notifications have distinct message_id values; the source
@@ -97,7 +100,7 @@ async function message(e){
    sharedCommandSeen.set(key,now);
    if(sharedCommandSeen.size>2500)for(const [k,t] of sharedCommandSeen)if(t<now-60000)sharedCommandSeen.delete(k);
   }
-  if(origin!==destination)log(ch.id,'shared-chat-command',origin+' -> '+destination+': '+rawCommand.slice(0,120));
+  log(ch.id,origin===destination?'standalone-chat-command':'shared-chat-command',origin+' -> '+destination+': '+rawCommand.slice(0,120));
  }
 if((e.message?.text||'').trim()){
  const members=recentChatters.get(ch.id)||new Map();recentChatters.set(ch.id,members);
@@ -395,7 +398,7 @@ app.get('/api/chat-diagnostics',withUser,access.channelOnly('owner'),(req,res)=>
   socketConnected:sockets.get('bot')?.readyState===WebSocket.OPEN,
   channelEnabled:Boolean(db.prepare('SELECT enabled FROM channels WHERE id=?').get(req.channelId)?.enabled),
   subscription:row,
-  recentLogs:db.prepare("SELECT event,detail,created FROM logs WHERE channel=? AND (event LIKE 'chat-eventsub%' OR event='shared-chat-command' OR event='error') ORDER BY id DESC LIMIT 15").all(req.channelId)
+  recentLogs:db.prepare("SELECT event,detail,created FROM logs WHERE channel=? AND (event LIKE 'chat-eventsub%' OR event='shared-chat-command' OR event='standalone-chat-command' OR event='error') ORDER BY id DESC LIMIT 15").all(req.channelId)
  });
 });
 app.get('/api/state',withUser,(req,res)=>{const ch=db.prepare('SELECT * FROM channels WHERE id=?').get(req.channelId);res.json({channel:ch,role:access.role(req.session.uid,req.channelId),isOperator:isOperator(req.session.uid),bot:(()=>{const b=getAccount(botId());return b?{id:b.id,login:b.login}:null})(),commands:db.prepare('SELECT * FROM commands WHERE channel=? ORDER BY name').all(req.channelId),logs:db.prepare('SELECT * FROM logs WHERE channel=? ORDER BY id DESC LIMIT 30').all(req.channelId)})});
