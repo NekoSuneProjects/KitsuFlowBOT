@@ -238,7 +238,7 @@ async function connectChat(){
  const generation=++chatGeneration;
  const previous=sockets.get('bot');
  if(previous){sockets.delete('bot');previous.close()}
- function openSocket(url){
+ function openSocket(url,isReconnect=false){
   if(generation!==chatGeneration)return;
   const ws=new WebSocket(url);
   sockets.set('bot',ws);
@@ -248,7 +248,7 @@ async function connectChat(){
     if(type==='session_reconnect'){
      // Twitch sends a reconnect URL; the replacement must have the SAME handlers.
      const next=d.payload?.session?.reconnect_url;
-     if(next){openSocket(next);ws.close()}
+     if(next){openSocket(next,true);ws.close()}
      return;
     }
     if(type==='notification'){
@@ -264,6 +264,7 @@ async function connectChat(){
      return;
     }
     if(type==='session_welcome'){
+     if(isReconnect)return; // Twitch preserves existing EventSub subscriptions across reconnect URLs.
      const sessionId=d.payload.session.id;
      for(const ch of db.prepare('SELECT id FROM channels WHERE enabled=1').all()){
       chatHealth.set(ch.id,{status:'subscribing',updatedAt:Date.now()});
