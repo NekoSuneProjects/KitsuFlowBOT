@@ -336,6 +336,10 @@ async function connections(){
  const diagnosticCard=card('Twitch chat command diagnostics','Shows the Twitch bot connection and whether this channel subscribed to chat events. A subscribed status does not guarantee Twitch is delivering messages.');
  diagnosticCard.append(e('p','Bot socket: '+(chatDiag.socketConnected?'Connected':'Disconnected')+' · Channel enabled: '+(chatDiag.channelEnabled?'Yes':'No')+' · Chat EventSub: '+(chatDiag.subscription?.status||chatDiag.error||'Unknown'),'description'));
  if(chatDiag.subscription?.detail)diagnosticCard.append(e('p',chatDiag.subscription.detail,'description'));
+ diagnosticCard.append(actions(btn('Test sending Twitch chat',async()=>{
+  try{const result=await api('/api/chat-diagnostics/test-send','POST',{});notify(result.message||'Twitch message sent')}
+  catch(err){notify('Chat test failed: '+err.message)}
+ },'primary')));
  diagnosticCard.append(table(['Event','Detail','Time'],(chatDiag.recentLogs||[]).map(x=>[x.event,x.detail,x.created])));
  c.append(diagnosticCard);
  const engagementScopes=await api('/api/twitch/engagement-scopes').catch(()=>null);
