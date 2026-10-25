@@ -29,6 +29,7 @@ export function installRelay({app,db,withUser,csrf,access,isOperator,log,observe
  app.post('/api/relay/group',withUser,access.channelOnly('owner'),csrf,(req,res)=>{
   const {enabled,platforms}=req.body||{};
   if(typeof enabled!=='boolean'||!Array.isArray(platforms)||platforms.some(p=>!supported.has(p))||new Set(platforms).size!==platforms.length||enabled&&platforms.length<2)return res.status(400).json({error:'Select at least two platforms to enable cross-platform relay'});
+  if(enabled&&platforms.includes('tiktok')&&!db.prepare("SELECT 1 FROM tiktok_verification WHERE channel=? AND verified=1 AND username=(SELECT username FROM tiktok_inbound WHERE channel=?)").get(req.channelId,req.channelId))return res.status(403).json({error:'Verify your TikTok account before enabling TikTok relay'});
   if(enabled&&platforms.some(p=>p!=='twitch'&&p!=='tiktok'&&!db.prepare('SELECT 1 FROM platform_oauth WHERE channel=? AND platform=?').get(req.channelId,p)))return res.status(409).json({error:'Link each selected platform before enabling its relay'});
   const update=db.transaction(()=>{
    db.prepare('INSERT INTO chat_relay_global(channel,enabled) VALUES(?,?) ON CONFLICT(channel) DO UPDATE SET enabled=excluded.enabled').run(req.channelId,enabled?1:0);
@@ -40,6 +41,7 @@ export function installRelay({app,db,withUser,csrf,access,isOperator,log,observe
  app.post('/api/relay',withUser,access.channelOnly('owner'),csrf,(req,res)=>{
   const {source,target,enabled}=req.body||{};
   if(!supported.has(source)||!supported.has(target)||source===target||typeof enabled!=='boolean')return res.status(400).json({error:'Invalid relay route'});
+  if(source==='tiktok'&&!db.prepare("SELECT 1 FROM tiktok_verification WHERE channel=? AND verified=1 AND username=(SELECT username FROM tiktok_inbound WHERE channel=?)").get(req.channelId,req.channelId))return res.status(403).json({error:'TikTok source not verified'});
   if(source!=='twitch'&&source!=='tiktok'&&!db.prepare('SELECT 1 FROM platform_oauth WHERE channel=? AND platform=?').get(req.channelId,source))return res.status(409).json({error:'Source platform not linked'});
   if(target==='tiktok')return res.status(400).json({error:'TikTok is receive-only; posting to TikTok is not supported'});
   if(target!=='twitch'&&!db.prepare('SELECT 1 FROM platform_oauth WHERE channel=? AND platform=?').get(req.channelId,target))return res.status(409).json({error:'Target platform not linked'});
