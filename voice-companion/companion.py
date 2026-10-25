@@ -593,9 +593,23 @@ class App:
                         if len(segment_buffer) < 16000 * 2 * 4: continue
                         samples = np.frombuffer(bytes(segment_buffer), dtype=np.int16).astype(np.float32) / 32768.0
                         segment_buffer.clear()
-                        chunks, info = model.transcribe(samples, language="en", beam_size=1,
-                            vad_filter=True, condition_on_previous_text=False)
-                        text = " ".join(" ".join(piece.text.lower().split()) for piece in chunks).strip()
+                        try:
+                            chunks, info = model.transcribe(samples, language="en", beam_size=1,
+                                vad_filter=True, condition_on_previous_text=False)
+                            # faster-whisper executes inference while iterating the generator.
+                            text = " ".join(" ".join(piece.text.lower().split()) for piece in chunks).strip()
+                        except (RuntimeError, OSError) as gpu_error:
+                            if device != "cuda":
+                                raise
+                            send("log", "CUDA inference failed (" + str(gpu_error)[:120] + "). Switching Whisper to CPU/int8.")
+                            del model
+                            device, precision = "cpu", "int8"
+                            model = WhisperModel(str(model_folder), device=device, compute_type=precision)
+                            chunks, info = model.transcribe(samples, language="en", beam_size=1,
+                                vad_filter=True, condition_on_previous_text=False)
+                            text = " ".join(" ".join(piece.text.lower().split()) for piece in chunks).strip()
+                            send("log", "Whisper recovered on CPU (int8).")
+
                         if text: send("log", "Whisper heard: " + text[:120])
                     phrase = config.get("phrase", "clip it")
                     # Whisper inserts punctuation and may put words around the phrase.
