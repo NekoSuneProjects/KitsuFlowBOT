@@ -23,7 +23,7 @@ export function installCreatorPayments({app,db,withUser,csrf,access,enc,dec,stre
   if(!id)return false;
   const change=db.prepare('INSERT OR IGNORE INTO payment_events(channel,provider,external_id,type,actor,amount,currency,tier) VALUES(?,?,?,?,?,?,?,?)')
    .run(channel,provider,String(id).slice(0,160),type,clean(actor),Number(amount)||0,clean(currency).slice(0,8),clean(tier)).changes;
-  if(change)streamActivity.emit(channel,provider,type,clean(actor),String(Number(amount)||0),provider+':'+channel+':'+id);
+  if(change){const detail=[String(Number(amount)||0)+(currency?' '+clean(currency):''),tier?'Tier: '+clean(tier):''].filter(Boolean).join(' · ');streamActivity.emit(channel,provider,type,clean(actor),detail,provider+':'+channel+':'+id);}
   return Boolean(change);
  }
  function close(channel,provider){
