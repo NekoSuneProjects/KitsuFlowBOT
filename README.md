@@ -223,3 +223,9 @@ TikTok relay now requires a **proof-of-control challenge** before accepting a LI
 
 Once verified and enabled, KitsuFlowBOT calls the connector's `fetchIsLive()` before opening a TikTok chat WebSocket. Offline channels are checked again approximately every 60 seconds. A temporary live chat connection is used during verification, but only if the handle is already live. TikTok messages also appear in the OBS multi-chat feed with a TikTok indicator. Outgoing posts to TikTok remain disabled. Unofficial TikTok endpoints or signing outages can prevent a connection despite a live broadcast.
 
+
+### Verify TikTok by profile bio (without going LIVE)
+
+In Studio → Connections, generate a one-time ownership code, add it temporarily to the **public TikTok bio** for the username you claimed, and click **Verify using TikTok bio**. No LIVE stream, TikTok developer app, OAuth credentials or TikTok password is needed. Codes expire after 30 minutes. Once verified, remove the code from the bio. The existing LIVE chat proof remains an alternative.
+
+Bio checking reads TikTok's public profile page and requires structured profile data with an exact matching username. TikTok does not provide an officially supported unauthenticated bio API: scraping may fail when TikTok changes page structure, restricts access or returns an anti-bot challenge. Verification fails closed and reports the problem rather than trusting arbitrary page text. This method demonstrates current control of a public profile; it is not official TikTok identity verification.

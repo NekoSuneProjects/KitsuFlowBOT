@@ -325,12 +325,14 @@ async function connections(){
  const tikEnabled=input('Connect to TikTok LIVE chat',Boolean(tiktokConfig.enabled),'checkbox');
  const proof=e('div','', 'description');
  const challenge=e('div','','stack');
+ const bioCode=input('Ownership code (from Generate ownership code)', '');
  tiktokCard.append(tikUser.node,tikEnabled.node,e('p','Verification: '+(tiktokConfig.verified?'Verified':'Required')+' · Connection: '+(tiktokConfig.status?.status||'unknown')+(tiktokConfig.status?.detail?' — '+tiktokConfig.status.detail:''),'description'),
   actions(btn('Generate ownership code',async()=>{
    const x=await api('/api/tiktok-inbound/verify/start','POST',{username:tikUser.value()});
-   challenge.replaceChildren(e('p','Start a TikTok LIVE broadcast. While checking verification, post this exact code from your broadcaster account in LIVE chat:','description'),e('strong',x.code));
-   notify('Ownership challenge created. Send the code from your own TikTok LIVE chat.');
-  }),btn('Check verification (20 sec)',async()=>{const x=await api('/api/tiktok-inbound/verify/check','POST',{});notify(x.verified?'TikTok account verified!':'Verification incomplete');await reloadView()}),btn('Save TikTok receiver',async()=>{await api('/api/tiktok-inbound','POST',{username:tikUser.value(),enabled:tikEnabled.value()});notify('TikTok receiver saved');await reloadView()},'primary')),challenge);
+   bioCode.el.value=x.code;
+   challenge.replaceChildren(e('p','Copy this code into your TikTok public profile bio, save it, then click Verify using bio. You do not need to go LIVE. Alternatively, send it in your LIVE chat:','description'),e('strong',x.code));
+   notify('Ownership challenge created. Add this code to your TikTok bio to verify.');
+  }),btn('Verify using TikTok bio',async()=>{const x=await api('/api/tiktok-inbound/verify/bio','POST',{code:bioCode.value()});notify(x.verified?'TikTok profile bio verified!':'Verification incomplete');await reloadView()},'primary'),btn('Check LIVE chat (20 sec)',async()=>{const x=await api('/api/tiktok-inbound/verify/check','POST',{});notify(x.verified?'TikTok account verified!':'Verification incomplete');await reloadView()}),btn('Save TikTok receiver',async()=>{await api('/api/tiktok-inbound','POST',{username:tikUser.value(),enabled:tikEnabled.value()});notify('TikTok receiver saved');await reloadView()},'primary')),bioCode.node,challenge);
  c.append(tiktokCard);
  const chatDiag=await api('/api/chat-diagnostics').catch(err=>({error:err.message}));
  const diagnosticCard=card('Twitch chat command diagnostics','Shows the Twitch bot connection and whether this channel subscribed to chat events. A subscribed status does not guarantee Twitch is delivering messages.');
