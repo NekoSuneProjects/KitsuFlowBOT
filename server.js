@@ -223,7 +223,7 @@ function connectEngagement(channel){
    const d=JSON.parse(String(raw)),type=d.metadata?.message_type;
    if(type==='notification'){
     const event=d.payload?.event||{},name=d.metadata.subscription_type;
-    streamActivity.emit(channel,'twitch',name,event.user_name||event.from_broadcaster_user_name||event.to_broadcaster_user_name||'',event.message?.text||String(event.bits||event.viewers||event.tier||''),d.metadata.message_id);
+    streamActivity.emit(channel,'twitch',name,event.user_name||event.from_broadcaster_user_name||event.to_broadcaster_user_name||'',event.message?.text||String(name==='channel.subscription.gift'?(event.total||1):(event.bits||event.viewers||event.tier||'')),d.metadata.message_id);
    }else if(type==='session_welcome'){
     const sid=d.payload.session.id;
     const config=[
