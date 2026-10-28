@@ -1,9 +1,9 @@
 (()=>{'use strict';
 const $=s=>document.querySelector(s),e=(tag,text,cls)=>{const x=document.createElement(tag);if(text!==undefined)x.textContent=text;if(cls)x.className=cls;return x}, h=(tag,cls,...children)=>{const x=e(tag,undefined,cls);for(const y of children)if(y!=null)x.append(typeof y==='string'?document.createTextNode(y):y);return x};
 let state=null,access=null,creator=null,engagement=null,page='overview';
-const groups=[['WORKSPACE',[['overview','◫','Overview'],['activity','◷','Activity Feed'],['reports','▥','Data & Reports']]],['BOT MANAGEMENT',[['commands','⌘','Custom Commands'],['timers','◴','Timers'],['moderation','◇','Moderation'],['voice','◉','Voice & Clips']]],['COMMUNITY',[['loyalty','✧','Loyalty & Points'],['campaigns','♢','Giveaways & Contests'],['store','▣','Stream Store'],['queue','☷','Viewer Queue'],['quotes','❞','Quotes & Counters']]],['STREAM TOOLS',[['overlays','▤','Overlay Studio'],['subathon','⏳','Subathon Timer'],['streamboss','⚔','Stream Boss'],['connections','⇄','Connections']]],['SETTINGS',[['channel','⚙','Channel Settings'],['team','♙','Team & Invites'],['admin','♛','Admin Panel']]]];
-const ownerPages=new Set(['connections','team','channel','overlays','subathon','streamboss']);
-const descriptions={overview:'A clear view of everything happening across your channel.',activity:'Recent messages, moderation and bot activity.',reports:'Understand loyalty activity, redemptions and channel engagement.',commands:'Create and manage the commands your viewers can use.',timers:'Schedule automatic Twitch chat announcements.',moderation:'Keep your community safe with moderation controls.',voice:'Create clips with your voice or a single click.',loyalty:'Configure loyalty rewards and view community standings.',campaigns:'Run community giveaways and draw winners.',store:'Manage redeemable loyalty-point rewards.',queue:'Organise who plays or joins you next.',quotes:'Capture favourite moments and manage counters.',overlays:'Create OBS browser sources for your stream.',subathon:'Run a cross-platform subathon with automatic time rewards and a custom OBS countdown.',streamboss:'Customisable standalone Stream Boss with health, event damage and an OBS overlay.',connections:'View broadcaster and shared public bot status.',channel:'Manage your own channel and security credentials.',team:'Invite editors and trusted moderators.',admin:'Configure and monitor the public bot for all channels.'};
+const groups=[['WORKSPACE',[['overview','◫','Overview'],['activity','◷','Activity Feed'],['reports','▥','Data & Reports']]],['BOT MANAGEMENT',[['commands','⌘','Custom Commands'],['timers','◴','Timers'],['moderation','◇','Moderation'],['voice','◉','Voice & Clips']]],['COMMUNITY',[['loyalty','✧','Loyalty & Points'],['campaigns','♢','Giveaways & Contests'],['store','▣','Stream Store'],['queue','☷','Viewer Queue'],['quotes','❞','Quotes & Counters']]],['STREAM TOOLS',[['overlays','▤','Overlay Studio'],['subathon','⏳','Subathon Timer'],['streamboss','⚔','Stream Boss'],['support','♡','Alerts & Donations'],['connections','⇄','Connections']]],['SETTINGS',[['channel','⚙','Channel Settings'],['team','♙','Team & Invites'],['admin','♛','Admin Panel']]]];
+const ownerPages=new Set(['connections','team','channel','overlays','subathon','streamboss','support']);
+const descriptions={overview:'A clear view of everything happening across your channel.',activity:'Recent messages, moderation and bot activity.',reports:'Understand loyalty activity, redemptions and channel engagement.',commands:'Create and manage the commands your viewers can use.',timers:'Schedule automatic Twitch chat announcements.',moderation:'Keep your community safe with moderation controls.',voice:'Create clips with your voice or a single click.',loyalty:'Configure loyalty rewards and view community standings.',campaigns:'Run community giveaways and draw winners.',store:'Manage redeemable loyalty-point rewards.',queue:'Organise who plays or joins you next.',quotes:'Capture favourite moments and manage counters.',overlays:'Create OBS browser sources for your stream.',subathon:'Run a cross-platform subathon with automatic time rewards and a custom OBS countdown.',streamboss:'Customisable standalone Stream Boss with health, event damage and an OBS overlay.',support:'Configure OBS alerts, donation services, and verified membership webhooks.',connections:'View broadcaster and shared public bot status.',channel:'Manage your own channel and security credentials.',team:'Invite editors and trusted moderators.',admin:'Configure and monitor the public bot for all channels.'};
 function notify(text){$('#notice').textContent=text;setTimeout(()=>{if($('#notice').textContent===text)$('#notice').textContent=''},6500)}
 async function api(path,method='GET',body){const r=await fetch(path,{method,headers:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});let x;try{x=await r.json()}catch{x={error:'Unexpected server response'}}if(!r.ok)throw Error(x.error||'Request failed');return x}
 const error=fn=>async(...args)=>{try{return await fn(...args)}catch(ex){notify(ex.message)}};
@@ -298,6 +298,55 @@ async function streamboss(){
  root.append(history);
  return root;
 }
+async function support(){
+ const [a,p]=await Promise.all([api('/api/stream-alerts'),api('/api/payment-integrations')]);
+ const root=h('div','stack');
+ const box=card('OBS alert overlay','Displays new follows, subs, resubs, gifted subs, Bits, Kicks, VPZone support events and enabled donation/membership events. Alerts are disabled by default.');
+ const source=location.origin+'/stream-alerts/overlay/'+a.public_key,sourceField=input('Alert Browser Source URL',source);sourceField.el.readOnly=true;
+ const title=input('Overlay heading',a.title),accent=input('Accent colour',a.accent,'color'),bg=input('Background',a.background,'color'),fg=input('Text colour',a.text_color,'color');
+ const transparent=input('Transparent overlay',a.transparent,'checkbox'),amount=input('Show event details / amount',a.show_amount,'checkbox'),duration=input('Alert duration (milliseconds)',a.duration_ms,'number');
+ box.append(sourceField.node,actions(btn('Copy alert overlay URL',()=>navigator.clipboard.writeText(source)),link('Open preview',source)),
+  grid('cols2',title.node,accent.node,bg.node,fg.node,transparent.node,amount.node,duration.node),
+  actions(btn('Save alert style',async()=>{await api('/api/stream-alerts/settings','POST',{title:title.value(),accent:accent.value(),background:bg.value(),text_color:fg.value(),transparent:transparent.value(),show_amount:amount.value(),duration_ms:duration.value()});notify('Alert style saved')},'primary')));
+ root.append(box);
+ const rules=card('Alert event switches','Choose which notifications appear in your OBS alert Browser Source. Disabling an alert never disables the originating Twitch, Kick or VPZone event feed.');
+ const map=new Map(a.rules.map(r=>[r.platform+':'+r.event_type,r]));
+ for(const [platform,kinds] of Object.entries(a.capabilities)){
+  const section=card(platform.toUpperCase());
+  for(const event_type of kinds){
+   const toggle=input(event_type.replaceAll('_',' '),Boolean(map.get(platform+':'+event_type)?.enabled),'checkbox');
+   section.append(h('div','list-row',toggle.node,btn('Save',async()=>{await api('/api/stream-alerts/rule','POST',{platform,event_type,enabled:toggle.value()});notify('Alert rule saved')})));
+  }
+  rules.append(section);
+ }
+ root.append(rules);
+ const payments=card('Donations and monthly memberships','Tokens and webhook secrets are encrypted on the server. Existing credentials are never displayed in Studio. Use a different provider secret for each channel.');
+ for(const entry of p.providers){
+  const label={streamelements:'StreamElements JWT (Astro WebSocket)',streamlabs:'Streamlabs Socket API token',tipeeestream:'TipeeeStream API key',kofi:'Ko-fi webhook verification token',patreon:'Patreon webhook secret'}[entry.provider];
+  const secret=input(entry.connected?'Replace '+label:label,'','password');
+  const fields=[secret.node],username=entry.provider==='tipeeestream'?input('TipeeeStream username',entry.username||''):null;
+  if(username)fields.push(username.node);
+  const row=card(label,entry.connected?'Configured · '+entry.status:'Not configured');
+  row.append(...fields);
+  if(['kofi','patreon'].includes(entry.provider)){
+   const url=input('Webhook URL (configure at the provider)',entry.webhook_url);url.el.readOnly=true;
+   row.append(url.node,actions(btn('Copy webhook URL',()=>navigator.clipboard.writeText(entry.webhook_url))));
+  }
+  row.append(actions(btn('Save and connect',async()=>{
+   await api('/api/payment-integrations/'+entry.provider,'POST',{secret:secret.value(),username:username?.value()||''});
+   notify(label+' configured');await reloadView();
+  },'primary'),btn('Disconnect',async()=>{
+   if(!confirm('Disconnect '+entry.provider+'?'))return;
+   await api('/api/payment-integrations/'+entry.provider+'/disconnect','POST',{});await reloadView();
+  })));
+  payments.append(row);
+ }
+ root.append(payments);
+ const feed=card('Recent donations and memberships','Only verified webhook or connected socket events appear here. Provider currencies are shown as received without conversion.');
+ feed.append(table(['Provider','Type','Supporter','Amount','Tier','When'],p.history.map(x=>[x.provider,x.type,x.actor,x.amount?x.amount+' '+x.currency:'—',x.tier||'—',x.created])));
+ root.append(feed);
+ return root;
+}
 async function connections(){
  const c=card('Unified creator profile','Twitch is your primary login. Connect Kick and VPZone to this same workspace. Your saved settings and custom commands belong to this creator account.');
  c.append(h('div','kf-connection-surface',h('div','kf-identity',e('div','Twitch broadcaster','kf-identity-label'),e('strong','@'+state.channel.login)),h('div','kf-identity',e('div','Shared bot','kf-identity-label'),e('strong',state.bot?'@'+state.bot.login:'Not connected'))));
@@ -503,7 +552,7 @@ c.append(device);
 c.append(actions(btn('Reconnect bot EventSub',async()=>{await api('/api/admin/bot/reconnect','POST');notify('Reconnection requested');await show('admin')})),e('h3','Connected channels'),table(['Channel','Twitch ID','Enabled'],x.channels.map(v=>['@'+v.login,v.id,v.enabled?'Yes':'No'])));if(x.bot?.login===state.channel.login)c.append(e('div','Warning: The bot and broadcaster are the same Twitch account. For a public multi-channel bot, authorise a dedicated bot Twitch account instead.','empty'));const logs=await adminLogs();const diagnostics=card('Bot & platform logs','Operational diagnostics, integration errors, chat command logs and connection history.');diagnostics.append(table(['Time','Channel','Type','Detail'],logs.map(v=>[v.created,v.login||v.channel,v.event,v.detail])));return h('div','stack',c,diagnostics)}
 async function adminLogs(){return await api('/api/admin/logs').catch(()=>[])}
 
-const views={overview,activity,reports,commands,timers,moderation,voice,loyalty,campaigns,store,queue,quotes,overlays,subathon,streamboss,connections,channel,team,admin};
+const views={overview,activity,reports,commands,timers,moderation,voice,loyalty,campaigns,store,queue,quotes,overlays,subathon,streamboss,support,connections,channel,team,admin};
 async function show(id){if((id==='admin'&&!state.isOperator)||(ownerPages.has(id)&&access.role!=='owner'))id='overview';page=id;$('#crumb').textContent=groups.flatMap(x=>x[1]).find(x=>x[0]===id)?.[2]||id;$('#page-title').textContent=$('#crumb').textContent;$('#page-desc').textContent=descriptions[id];$('#kicker').textContent=id==='admin'?'PLATFORM ADMINISTRATION':'CREATOR CONTROL CENTER';document.querySelectorAll('.nav-link').forEach(x=>x.classList.toggle('active',x.dataset.page===id));const view=$('#view');view.replaceChildren(e('p','Loading...','muted'));try{const result=await views[id]();view.replaceChildren(result)}catch(ex){view.replaceChildren(e('div','Failed to load page: '+ex.message,'empty'))}}
 // Live dashboard activity refresh while the Activity Feed page is displayed.
 let lastActivitySignature='';
