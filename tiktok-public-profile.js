@@ -30,7 +30,7 @@ export async function getPublicTikTokBio(username){
  const html=(await response.text()).slice(0,3_000_000);
  // Inspect only TikTok-hydrated JSON that includes an exact matching uniqueId.
  for(const id of ['__UNIVERSAL_DATA_FOR_REHYDRATION__','SIGI_STATE']){
-  const pattern=new RegExp('<script[^>]*id=["\\\']'+id+'["\\\'][^>]*>([\\s\\S]*?)<\\/script>','i');
+  const pattern=new RegExp('<script[^>]*id="'+id+'"[^>]*>([\\s\\S]*?)<\\/script>','i');
   const match=pattern.exec(html);
   if(!match)continue;
   try{
