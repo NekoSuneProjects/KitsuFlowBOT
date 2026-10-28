@@ -36,7 +36,7 @@ export function installStreamActivity({app,db,withUser,access}){
   db.prepare('INSERT INTO stream_announcement_settings(channel,platform,event_type,enabled,template) VALUES(?,?,?,?,?) ON CONFLICT(channel,platform,event_type) DO UPDATE SET enabled=excluded.enabled,template=excluded.template').run(req.channelId,platform,event_type,enabled?1:0,template);
   res.json({ok:true});
  });
- const types=new Set(['follow','subscription','subscription_gift','subscription_renewal','raid','cheer','kicks','donation','reward']);
+ const types=new Set(['follow','subscription','subscription_gift','subscription_renewal','raid','cheer','kicks','donation','reward','membership','membership_update','membership_end','purchase']);
  const normalize=(platform,event)=> {
   const v=String(event||'').toLowerCase();
   const mapping={
