@@ -52,13 +52,14 @@ export function installStreamActivity({app,db,withUser,access}){
   const outcome=db.prepare('INSERT OR IGNORE INTO stream_activity(channel,platform,event_type,actor,detail,event_key) VALUES(?,?,?,?,?,?)')
    .run(id,platform,kind,String(actor||'').slice(0,100),String(detail||'').slice(0,300),key?platform+':'+String(key).slice(0,200):null);
   if(outcome.changes&&activityListener){try{activityListener(id,platform,kind,actor,detail)}catch(err){console.error('Subathon activity hook failed:',err.message)}}
-  if(outcome.changes&&allowed[platform]?.includes(kind)){
-   const row=db.prepare('SELECT enabled,template FROM stream_announcement_settings WHERE channel=? AND platform=? AND event_type=?').get(id,platform,kind);
+  const announceKind=kind==='subscription_renewal'?'subscription':kind;
+  if(outcome.changes&&allowed[platform]?.includes(announceKind)){
+   const row=db.prepare('SELECT enabled,template FROM stream_announcement_settings WHERE channel=? AND platform=? AND event_type=?').get(id,platform,announceKind);
    const sender=senders.get(platform);
    if(row?.enabled&&sender){
     const cleanUser=String(actor||'viewer').replace(/[\\r\\n]/g,' ').slice(0,80);
     const cleanDetail=String(detail||'').replace(/[\\r\\n]/g,' ').slice(0,90);
-    const content=(row.template||defaults[kind]).replaceAll('{user}',cleanUser).replaceAll('{detail}',cleanDetail).slice(0,450);
+    const content=(row.template||defaults[announceKind]).replaceAll('{user}',cleanUser).replaceAll('{detail}',cleanDetail).slice(0,450);
     Promise.resolve().then(()=>sender(id,content)).catch(err=>console.error('Local '+platform+' announcement failed:',String(err.message||err)));
    }
   }
