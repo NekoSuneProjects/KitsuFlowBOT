@@ -229,3 +229,17 @@ Once verified and enabled, KitsuFlowBOT calls the connector's `fetchIsLive()` be
 In Studio → Connections, generate a one-time ownership code, add it temporarily to the **public TikTok bio** for the username you claimed, and click **Verify using TikTok bio**. No LIVE stream, TikTok developer app, OAuth credentials or TikTok password is needed. Codes expire after 30 minutes. Once verified, remove the code from the bio. The existing LIVE chat proof remains an alternative.
 
 Bio checking reads TikTok's public profile page and requires structured profile data with an exact matching username. TikTok does not provide an officially supported unauthenticated bio API: scraping may fail when TikTok changes page structure, restricts access or returns an anti-bot challenge. Verification fails closed and reports the problem rather than trusting arbitrary page text. This method demonstrates current control of a public profile; it is not official TikTok identity verification.
+
+## Cross-platform subathon timer
+
+The **Studio → Subathon Timer** page provides a server-persistent countdown, start/pause, manual add/remove/set/reset controls, custom reward rules, event history, and a separate OBS Browser Source at `/subathon/overlay/<private-public-key>`. The overlay polls the server every two seconds; the countdown continues while Studio or OBS is closed. The OBS source uses the generated URL (treat it as a secret), a configurable title, accent/text/background colours, font, transparency, a latest-reward line and a maximum timer duration. The timer is *not* tied to the browser clock alone.
+
+Every reward is **disabled by default**. After receiving a deduplicated event through the platform activity feed, KitsuFlowBOT can add a chosen number of seconds per event or per reported unit (Bits, Kicks or gifted-sub quantity). Rules are available for:
+- **Twitch:** follows, subscriptions, renewals, gift subscriptions, Bits and raids.
+- **Kick:** follows, subscriptions, renewals, gifted subscriptions and Kicks.
+- **VPZone:** follows, subscriptions, gift subscriptions, donations and raids, **where the VPZone API actually supplies the corresponding event**.
+
+If an event does not include a count, one unit is assumed. Event categories not delivered by a provider cannot add time; there is no fabricated detection or guaranteed gift/renewal tracking. Twitch EventSub subscriptions, Kick webhooks and VPZone websocket/polling need to be linked and functioning. A historical event already stored by the activity feed will not be rewarded a second time. Events arriving while the timer is paused add time without starting it. To begin counting, click **Start**; to cap the timer, set maximum hours. A maximum of zero means no configured cap (a safety cap of 365 days still applies).
+
+Owner-only routes `/api/subathon/control`, `/api/subathon/settings` and `/api/subathon/rule` require session authorisation and CSRF checks. The overlay exposes only timer presentation and latest event data, not account credentials. This feature follows the broad Marathon Timer workflow from the reference screenshots but uses an original, simpler interface; goals, boss battles, multipliers and automated stream start/stop are not included in this first version.
+
