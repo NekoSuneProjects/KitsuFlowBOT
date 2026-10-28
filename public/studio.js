@@ -324,7 +324,7 @@ async function support(){
  for(const entry of p.providers){
   const label={streamelements:'StreamElements JWT (Astro WebSocket)',streamlabs:'Streamlabs Socket API token',tipeeestream:'TipeeeStream API key',kofi:'Ko-fi webhook verification token',patreon:'Patreon webhook secret'}[entry.provider];
   const secret=input(entry.connected?'Replace '+label:label,'','password');
-  const fields=[secret.node],username=entry.provider==='tipeeestream'?input('TipeeeStream username',entry.username||''):null;
+  const fields=[secret.node],username=entry.provider==='tipeeestream'?input('TipeeeStream username',entry.username||''):entry.provider==='streamelements'?input('StreamElements channel ID (room ID)',entry.username||''):null;
   if(username)fields.push(username.node);
   const row=card(label,entry.connected?'Configured · '+entry.status:'Not configured');
   row.append(...fields);
