@@ -3,11 +3,15 @@ export function installRelay({app,db,withUser,csrf,access,isOperator,log,observe
  db.exec(`CREATE TABLE IF NOT EXISTS chat_relay_settings(channel TEXT NOT NULL,source TEXT NOT NULL,target TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(channel,source,target));
  CREATE TABLE IF NOT EXISTS chat_relay_events(id INTEGER PRIMARY KEY AUTOINCREMENT,channel TEXT NOT NULL,source TEXT NOT NULL,target TEXT NOT NULL,sender TEXT NOT NULL,content TEXT NOT NULL,status TEXT NOT NULL,created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);`);
  db.exec('CREATE TABLE IF NOT EXISTS chat_relay_global(channel TEXT PRIMARY KEY,enabled INTEGER NOT NULL DEFAULT 0)');
+ db.exec('CREATE TABLE IF NOT EXISTS chat_relay_event_preferences(channel TEXT PRIMARY KEY,joins INTEGER NOT NULL DEFAULT 0,alerts INTEGER NOT NULL DEFAULT 0)');
+ const preferences=channel=>db.prepare('SELECT joins,alerts FROM chat_relay_event_preferences WHERE channel=?').get(channel)||{joins:0,alerts:0};
  const supported=new Set(['twitch','kick','vpzone','tiktok']), senders=new Map(),recent=new Map();
  const register=(platform,fn)=>senders.set(platform,fn);
  const identityPrefix='[KitsuFlow relay ';
- async function relay(channel,source,username,content,{isBot=false,fragments=[]}={}){
+ async function relay(channel,source,username,content,{isBot=false,fragments=[],kind='chat'}={}){
   if(!supported.has(source)||isBot)return;
+  if(kind!=='chat'&&!['joins','alerts'].includes(kind))return;
+  if(kind!=='chat'&&!preferences(channel)[kind])return;
   const clean=String(content||'').trim().slice(0,350),sender=String(username||'unknown').replace(/[^a-z0-9_-]/gi,'').slice(0,28);
   if(!clean||clean.startsWith(identityPrefix))return;
   if(observe)observe(channel,source,username,clean,{fragments});
@@ -24,7 +28,15 @@ export function installRelay({app,db,withUser,csrf,access,isOperator,log,observe
   }
  }
  app.get('/api/relay',withUser,access.channelOnly('owner'),(req,res)=>{
-  res.json({enabled:Boolean(db.prepare('SELECT enabled FROM chat_relay_global WHERE channel=?').get(req.channelId)?.enabled),routes:db.prepare('SELECT source,target,enabled FROM chat_relay_settings WHERE channel=?').all(req.channelId),history:db.prepare('SELECT source,target,sender,content,status,created FROM chat_relay_events WHERE channel=? ORDER BY id DESC LIMIT 50').all(req.channelId)});
+  res.json({enabled:Boolean(db.prepare('SELECT enabled FROM chat_relay_global WHERE channel=?').get(req.channelId)?.enabled),eventPreferences:preferences(req.channelId),routes:db.prepare('SELECT source,target,enabled FROM chat_relay_settings WHERE channel=?').all(req.channelId),history:db.prepare('SELECT source,target,sender,content,status,created FROM chat_relay_events WHERE channel=? ORDER BY id DESC LIMIT 50').all(req.channelId)});
+ });
+ app.post('/api/relay/events',withUser,access.channelOnly('owner'),csrf,(req,res)=>{
+  const {joins,alerts}=req.body||{};
+  if(typeof joins!=='boolean'||typeof alerts!=='boolean')return res.status(400).json({error:'Select true or false for joins and alerts'});
+  db.prepare('INSERT INTO chat_relay_event_preferences(channel,joins,alerts) VALUES(?,?,?) ON CONFLICT(channel) DO UPDATE SET joins=excluded.joins,alerts=excluded.alerts')
+   .run(req.channelId,joins?1:0,alerts?1:0);
+  log(req.channelId,'relay-config','system events: joins='+joins+' alerts='+alerts);
+  res.json({ok:true,eventPreferences:preferences(req.channelId)});
  });
  app.post('/api/relay/group',withUser,access.channelOnly('owner'),csrf,(req,res)=>{
   const {enabled,platforms}=req.body||{};
