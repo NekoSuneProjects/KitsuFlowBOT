@@ -9,6 +9,7 @@ import path from 'node:path';
 import {installEngagement} from './engagement.js';
 import {installCreator} from './creator.js';
 import {installStreamActivity} from './stream-activity.js';
+import {installSubathon} from './subathon.js';
 import {installVoice} from './voice.js';
 import {installVoiceCompanion} from './voice-companion.js';
 import {installAccess} from './access.js';
@@ -222,7 +223,7 @@ function connectEngagement(channel){
    const d=JSON.parse(String(raw)),type=d.metadata?.message_type;
    if(type==='notification'){
     const event=d.payload?.event||{},name=d.metadata.subscription_type;
-    streamActivity.emit(channel,'twitch',name,event.user_name||event.from_broadcaster_user_name||event.to_broadcaster_user_name||'',event.message?.text||String(event.bits||event.viewers||event.tier||''),d.metadata.message_id);
+    streamActivity.emit(channel,'twitch',name,event.user_name||event.from_broadcaster_user_name||event.to_broadcaster_user_name||'',event.message?.text||String(name==='channel.subscription.gift'?(event.total||1):(event.bits||event.viewers||event.tier||'')),d.metadata.message_id);
    }else if(type==='session_welcome'){
     const sid=d.payload.session.id;
     const config=[
@@ -340,6 +341,8 @@ res.redirect('/dashboard')}));
 app.post('/logout',csrf,(req,res)=>req.session.destroy(()=>res.json({ok:true})));
 const access=installAccess({app,db,withUser,csrf,safe,log});
 const streamActivity=installStreamActivity({app,db,withUser,access});
+const subathon=installSubathon({app,db,withUser,csrf,access,log});
+streamActivity.setOnEvent(subathon.onActivity);
 streamActivity.setSender('twitch',say);
 app.get('/api/admin/logs',withUser,(req,res)=>{if(!isOperator(req.session.uid))return res.status(403).json({error:'Operator access required'});res.set('Cache-Control','no-store').json(db.prepare('SELECT l.channel,c.login,l.event,l.detail,l.created FROM logs l LEFT JOIN channels c ON c.id=l.channel ORDER BY l.id DESC LIMIT 250').all())});
 const creatorTools=installCreatorTools({app,db,withUser,csrf,access,enc,dec});

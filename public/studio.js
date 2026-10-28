@@ -1,9 +1,9 @@
 (()=>{'use strict';
 const $=s=>document.querySelector(s),e=(tag,text,cls)=>{const x=document.createElement(tag);if(text!==undefined)x.textContent=text;if(cls)x.className=cls;return x}, h=(tag,cls,...children)=>{const x=e(tag,undefined,cls);for(const y of children)if(y!=null)x.append(typeof y==='string'?document.createTextNode(y):y);return x};
 let state=null,access=null,creator=null,engagement=null,page='overview';
-const groups=[['WORKSPACE',[['overview','◫','Overview'],['activity','◷','Activity Feed'],['reports','▥','Data & Reports']]],['BOT MANAGEMENT',[['commands','⌘','Custom Commands'],['timers','◴','Timers'],['moderation','◇','Moderation'],['voice','◉','Voice & Clips']]],['COMMUNITY',[['loyalty','✧','Loyalty & Points'],['campaigns','♢','Giveaways & Contests'],['store','▣','Stream Store'],['queue','☷','Viewer Queue'],['quotes','❞','Quotes & Counters']]],['STREAM TOOLS',[['overlays','▤','Overlay Studio'],['connections','⇄','Connections']]],['SETTINGS',[['channel','⚙','Channel Settings'],['team','♙','Team & Invites'],['admin','♛','Admin Panel']]]];
-const ownerPages=new Set(['connections','team','channel','overlays']);
-const descriptions={overview:'A clear view of everything happening across your channel.',activity:'Recent messages, moderation and bot activity.',reports:'Understand loyalty activity, redemptions and channel engagement.',commands:'Create and manage the commands your viewers can use.',timers:'Schedule automatic Twitch chat announcements.',moderation:'Keep your community safe with moderation controls.',voice:'Create clips with your voice or a single click.',loyalty:'Configure loyalty rewards and view community standings.',campaigns:'Run community giveaways and draw winners.',store:'Manage redeemable loyalty-point rewards.',queue:'Organise who plays or joins you next.',quotes:'Capture favourite moments and manage counters.',overlays:'Create OBS browser sources for your stream.',connections:'View broadcaster and shared public bot status.',channel:'Manage your own channel and security credentials.',team:'Invite editors and trusted moderators.',admin:'Configure and monitor the public bot for all channels.'};
+const groups=[['WORKSPACE',[['overview','◫','Overview'],['activity','◷','Activity Feed'],['reports','▥','Data & Reports']]],['BOT MANAGEMENT',[['commands','⌘','Custom Commands'],['timers','◴','Timers'],['moderation','◇','Moderation'],['voice','◉','Voice & Clips']]],['COMMUNITY',[['loyalty','✧','Loyalty & Points'],['campaigns','♢','Giveaways & Contests'],['store','▣','Stream Store'],['queue','☷','Viewer Queue'],['quotes','❞','Quotes & Counters']]],['STREAM TOOLS',[['overlays','▤','Overlay Studio'],['subathon','⏳','Subathon Timer'],['connections','⇄','Connections']]],['SETTINGS',[['channel','⚙','Channel Settings'],['team','♙','Team & Invites'],['admin','♛','Admin Panel']]]];
+const ownerPages=new Set(['connections','team','channel','overlays','subathon']);
+const descriptions={overview:'A clear view of everything happening across your channel.',activity:'Recent messages, moderation and bot activity.',reports:'Understand loyalty activity, redemptions and channel engagement.',commands:'Create and manage the commands your viewers can use.',timers:'Schedule automatic Twitch chat announcements.',moderation:'Keep your community safe with moderation controls.',voice:'Create clips with your voice or a single click.',loyalty:'Configure loyalty rewards and view community standings.',campaigns:'Run community giveaways and draw winners.',store:'Manage redeemable loyalty-point rewards.',queue:'Organise who plays or joins you next.',quotes:'Capture favourite moments and manage counters.',overlays:'Create OBS browser sources for your stream.',subathon:'Run a cross-platform subathon with automatic time rewards and a custom OBS countdown.',connections:'View broadcaster and shared public bot status.',channel:'Manage your own channel and security credentials.',team:'Invite editors and trusted moderators.',admin:'Configure and monitor the public bot for all channels.'};
 function notify(text){$('#notice').textContent=text;setTimeout(()=>{if($('#notice').textContent===text)$('#notice').textContent=''},6500)}
 async function api(path,method='GET',body){const r=await fetch(path,{method,headers:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});let x;try{x=await r.json()}catch{x={error:'Unexpected server response'}}if(!r.ok)throw Error(x.error||'Request failed');return x}
 const error=fn=>async(...args)=>{try{return await fn(...args)}catch(ex){notify(ex.message)}};
@@ -208,6 +208,53 @@ function store(){return wrap(form('New store reward',[['title','Reward name'],['
 function queue(){return h('section','card',e('h2','Viewer Queue'),e('p','Viewers use !queue join or !queue leave in chat.','description'),actions(btn('Call next viewer',async()=>{const x=await api('/api/creator/queue/next','POST');notify(x.next?'Next: '+x.next:'Queue empty');await reloadView()},'primary'),btn('Clear queue',async()=>{if(!confirm('Clear all viewers?'))return;await api('/api/creator/queue/clear','POST');await reloadView()},'danger')),table(['Position','Viewer','Joined'],creator.queue.map((x,i)=>[i+1,x.username,x.added])))}
 function quotes(){return wrap(form('Save a quote',[['text','Quote text']],'Add quote',x=>api('/api/engagement/quote','POST',x)),form('Configure counter',[['name','Counter name'],['value','Current count','number',0]],'Save counter',x=>api('/api/engagement/counter','POST',x)),h('section','card',e('h2','Quotes'),list(engagement.quotes,x=>'#'+x.id+' '+x.text,x=>api('/api/engagement/quote/'+x.id,'DELETE'))),h('section','card',e('h2','Counters'),list(engagement.counters,x=>x.name+' = '+x.value,x=>api('/api/engagement/counter/'+x.name,'DELETE'))))}
 function overlays(){return wrap(form('New OBS overlay',[['title','Overlay name'],['kind','Widget','options',['alerts','leaderboard','queue','ticker']]],'Create overlay',x=>api('/api/creator/overlay','POST',x)),h('section','card',e('h2','Browser source widgets'),table(['Widget','Type','Actions'],creator.overlays.map(x=>[x.title,x.kind,actions(link('Open source ↗','/overlay/'+x.public_key),btn('Test',async()=>{await api('/api/creator/overlay/test','POST',{id:x.id,message:'KitsuFlowBOT test notification'});notify('Test event sent')}))]))))}
+async function subathon(){
+ const d=await api('/api/subathon');
+ const root=h('div','stack');
+ const current=card('Subathon countdown','Persistent timer: continues to count down on the server after you close Studio. A paused timer keeps its remaining time.');
+ const shown=e('div','', 'description');
+ const format=ms=>{const n=Math.ceil(Math.max(0,ms)/1000);return String(Math.floor(n/3600)).padStart(2,'0')+':'+String(Math.floor((n%3600)/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0')};
+ let remaining=d.remaining_ms,started=Date.now(),running=d.running;
+ const render=()=>{if(!shown.isConnected)return;shown.textContent=format(remaining-(running?Date.now()-started:0))+' · '+(running?'Running':'Paused / ended')};
+ render();const refresh=setInterval(()=>{if(!shown.isConnected){clearInterval(refresh);return}render()},1000);
+ const adjust=input('Time (seconds)',3600,'number');adjust.el.min='0';adjust.el.max='31536000';
+ const control=async action=>{const b=await api('/api/subathon/control','POST',{action,seconds:adjust.value()});remaining=b.remaining_ms;started=Date.now();running=b.running;render();notify('Subathon '+action+' saved')};
+ current.append(shown,adjust.node,actions(btn('Start',()=>control('start'),'primary'),btn('Pause',()=>control('pause')),btn('Add time',()=>control('add')),btn('Remove time',()=>control('remove')),btn('Set time',()=>control('set')),btn('Reset',()=>control('reset'))));
+ root.append(current);
+ const ov=card('OBS subathon countdown overlay','Use as a Browser Source in OBS. Timer updates automatically and supports transparent backgrounds.');
+ const url=location.origin+'/subathon/overlay/'+d.public_key;
+ const urlField=input('OBS Browser Source URL',url);urlField.el.readOnly=true;
+ const titleField=input('Overlay title',d.title),maximum=input('Maximum timer hours (0 = no limit)',d.max_ms/3600000,'number');
+ const accent=input('Accent colour',d.accent,'color'),textColour=input('Text colour',d.text_color,'color'),background=input('Background colour',d.background,'color');
+ const transparency=input('Transparent background',d.transparent,'checkbox'),showEvents=input('Show latest time reward event',d.show_events,'checkbox');
+ const font=selector('Font',['Inter','Arial','Verdana','Georgia','monospace'],d.font);
+ maximum.el.min='0';maximum.el.max='8760';
+ ov.append(urlField.node,actions(btn('Copy overlay URL',()=>navigator.clipboard.writeText(url)),link('Open preview',url)),grid('cols2',titleField.node,maximum.node,accent.node,textColour.node,background.node,font.node,transparency.node,showEvents.node),actions(btn('Save overlay style',async()=>{
+  await api('/api/subathon/settings','POST',{title:titleField.value(),max_hours:maximum.value(),accent:accent.value(),text_color:textColour.value(),background:background.value(),font:font.value(),transparent:transparency.value(),show_events:showEvents.value()});
+  notify('Subathon overlay style saved');
+ },'primary')));
+ root.append(ov);
+ const rewards=card('Automatic time rewards','All rewards are OFF by default. Seconds per unit means Bits, Kicks or gifted-sub count where reported by the platform; other events count once.');
+ const rules=new Map(d.rules.map(x=>[x.platform+':'+x.event_type,x]));
+ const names={subscription:'Subscription',subscription_renewal:'Resub / renewal',subscription_gift:'Gifted subscriptions',cheer:'Twitch Bits',kicks:'Kick Kicks',follow:'Follow',raid:'Raid',donation:'Donation'};
+ for(const [platform,events] of Object.entries(d.capabilities)){
+  const sect=card(platform.toUpperCase());
+  for(const event_type of events){
+   const rule=rules.get(platform+':'+event_type)||{enabled:false,seconds:event_type==='subscription'||event_type==='subscription_renewal'||event_type==='subscription_gift'?60:0,per_unit:['cheer','kicks','subscription_gift'].includes(event_type)};
+   const enabled=input('Enable '+(names[event_type]||event_type),Boolean(rule.enabled),'checkbox');
+   const seconds=input('Seconds added',rule.seconds,'number');seconds.el.min='0';seconds.el.max='86400';
+   const perUnit=input('Per unit / gift',Boolean(rule.per_unit),'checkbox');
+   const save=btn('Save',async()=>{await api('/api/subathon/rule','POST',{platform,event_type,enabled:enabled.value(),seconds:seconds.value(),per_unit:perUnit.value()});notify(platform+' '+event_type+' reward saved')});
+   sect.append(h('div','list-row',enabled.node,seconds.node,perUnit.node,save));
+  }
+  rewards.append(sect);
+ }
+ root.append(rewards);
+ const history=card('Time added by recent events');
+ history.append(table(['Platform','Event','Viewer','Seconds','When'],(d.history||[]).map(x=>[x.platform,x.event_type,x.actor,'+'+x.seconds,x.created])));
+ root.append(history);
+ return root;
+}
 async function connections(){
  const c=card('Unified creator profile','Twitch is your primary login. Connect Kick and VPZone to this same workspace. Your saved settings and custom commands belong to this creator account.');
  c.append(h('div','kf-connection-surface',h('div','kf-identity',e('div','Twitch broadcaster','kf-identity-label'),e('strong','@'+state.channel.login)),h('div','kf-identity',e('div','Shared bot','kf-identity-label'),e('strong',state.bot?'@'+state.bot.login:'Not connected'))));
@@ -413,7 +460,7 @@ c.append(device);
 c.append(actions(btn('Reconnect bot EventSub',async()=>{await api('/api/admin/bot/reconnect','POST');notify('Reconnection requested');await show('admin')})),e('h3','Connected channels'),table(['Channel','Twitch ID','Enabled'],x.channels.map(v=>['@'+v.login,v.id,v.enabled?'Yes':'No'])));if(x.bot?.login===state.channel.login)c.append(e('div','Warning: The bot and broadcaster are the same Twitch account. For a public multi-channel bot, authorise a dedicated bot Twitch account instead.','empty'));const logs=await adminLogs();const diagnostics=card('Bot & platform logs','Operational diagnostics, integration errors, chat command logs and connection history.');diagnostics.append(table(['Time','Channel','Type','Detail'],logs.map(v=>[v.created,v.login||v.channel,v.event,v.detail])));return h('div','stack',c,diagnostics)}
 async function adminLogs(){return await api('/api/admin/logs').catch(()=>[])}
 
-const views={overview,activity,reports,commands,timers,moderation,voice,loyalty,campaigns,store,queue,quotes,overlays,connections,channel,team,admin};
+const views={overview,activity,reports,commands,timers,moderation,voice,loyalty,campaigns,store,queue,quotes,overlays,subathon,connections,channel,team,admin};
 async function show(id){if((id==='admin'&&!state.isOperator)||(ownerPages.has(id)&&access.role!=='owner'))id='overview';page=id;$('#crumb').textContent=groups.flatMap(x=>x[1]).find(x=>x[0]===id)?.[2]||id;$('#page-title').textContent=$('#crumb').textContent;$('#page-desc').textContent=descriptions[id];$('#kicker').textContent=id==='admin'?'PLATFORM ADMINISTRATION':'CREATOR CONTROL CENTER';document.querySelectorAll('.nav-link').forEach(x=>x.classList.toggle('active',x.dataset.page===id));const view=$('#view');view.replaceChildren(e('p','Loading...','muted'));try{const result=await views[id]();view.replaceChildren(result)}catch(ex){view.replaceChildren(e('div','Failed to load page: '+ex.message,'empty'))}}
 // Live dashboard activity refresh while the Activity Feed page is displayed.
 let lastActivitySignature='';
