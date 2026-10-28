@@ -226,10 +226,10 @@ async function subathon(){
  const urlField=input('OBS Browser Source URL',url);urlField.el.readOnly=true;
  const titleField=input('Overlay title',d.title),maximum=input('Maximum timer hours (0 = no limit)',d.max_ms/3600000,'number');
  const accent=input('Accent colour',d.accent,'color'),textColour=input('Text colour',d.text_color,'color'),background=input('Background colour',d.background,'color');
- const transparency=input('Transparent background',d.transparent,'checkbox'),showEvents=input('Show event details (reserved)',d.show_events,'checkbox');
+ const transparency=input('Transparent background',d.transparent,'checkbox'),showEvents=input('Show latest time reward event',d.show_events,'checkbox');
  const font=selector('Font',['Inter','Arial','Verdana','Georgia','monospace'],d.font);
  maximum.el.min='0';maximum.el.max='8760';
- ov.append(urlField.node,actions(btn('Copy overlay URL',()=>navigator.clipboard.writeText(url)),link('Open preview',url)),grid('cols2',titleField.node,maximum.node,accent.node,textColour.node,background.node,font.node,transparency.node),actions(btn('Save overlay style',async()=>{
+ ov.append(urlField.node,actions(btn('Copy overlay URL',()=>navigator.clipboard.writeText(url)),link('Open preview',url)),grid('cols2',titleField.node,maximum.node,accent.node,textColour.node,background.node,font.node,transparency.node,showEvents.node),actions(btn('Save overlay style',async()=>{
   await api('/api/subathon/settings','POST',{title:titleField.value(),max_hours:maximum.value(),accent:accent.value(),text_color:textColour.value(),background:background.value(),font:font.value(),transparent:transparency.value(),show_events:showEvents.value()});
   notify('Subathon overlay style saved');
  },'primary')));
