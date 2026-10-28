@@ -15,7 +15,7 @@ export function installSubathon({app,db,withUser,csrf,access,log}){
  CREATE TABLE IF NOT EXISTS subathon_history(id INTEGER PRIMARY KEY AUTOINCREMENT,channel TEXT NOT NULL,
  platform TEXT NOT NULL,event_type TEXT NOT NULL,actor TEXT NOT NULL DEFAULT '',
  seconds INTEGER NOT NULL,created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);`);
- const definitions={twitch:['follow','subscription','subscription_renewal','subscription_gift','cheer','raid'],kick:['follow','subscription','subscription_renewal','subscription_gift','kicks'],vpzone:['follow','subscription','subscription_gift','donation','raid']};
+ const definitions={twitch:['follow','subscription','subscription_renewal','subscription_gift','cheer','raid'],kick:['follow','subscription','subscription_renewal','subscription_gift','kicks'],vpzone:['follow','subscription','subscription_gift','donation','raid'],streamelements:['donation'],streamlabs:['donation'],tipeeestream:['donation','membership'],kofi:['donation','membership'],patreon:['membership']};
  const defaults={subscription:60,subscription_renewal:60,subscription_gift:60,cheer:60,kicks:60};
  const get=channel=>db.prepare('SELECT * FROM subathon_state WHERE channel=?').get(channel);
  function ensure(channel){
