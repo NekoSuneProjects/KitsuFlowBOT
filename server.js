@@ -11,6 +11,7 @@ import {installCreator} from './creator.js';
 import {installStreamActivity} from './stream-activity.js';
 import {installSubathon} from './subathon.js';
 import {installStreamBoss} from './stream-boss.js';
+import {installCreatorPayments} from './creator-payments.js';
 import {installVoice} from './voice.js';
 import {installVoiceCompanion} from './voice-companion.js';
 import {installAccess} from './access.js';
@@ -321,8 +322,9 @@ async function connectChat(){
  }
  openSocket('wss://eventsub.wss.twitch.tv/ws');
 }
-const app=express();app.set('trust proxy',process.env.TRUST_PROXY==='true'?1:false);app.use(express.json({limit:'256kb',verify:(req,res,buffer)=>{if(req.path==='/webhooks/kick')req.rawBody=Buffer.from(buffer)}}));
+const app=express();app.set('trust proxy',process.env.TRUST_PROXY==='true'?1:false);app.use(express.json({limit:'256kb',verify:(req,res,buffer)=>{if(req.path==='/webhooks/kick'||req.path.startsWith('/webhooks/payments/patreon/'))req.rawBody=Buffer.from(buffer)}}));
 const Store=SQLiteStoreFactory(session);
+app.use(express.urlencoded({extended:false,limit:'128kb'}));
 app.use(session({store:new Store({db:'sessions.sqlite',dir:'data'}),name:'sn.sid',secret:process.env.SESSION_SECRET,resave:false,saveUninitialized:false,cookie:{httpOnly:true,sameSite:'lax',secure:BASE.startsWith('https:'),maxAge:86400000}}));
 const withUser=(req,res,next)=>req.session.uid?next():res.status(401).json({error:'Login required'});
 const csrf=(req,res,next)=>{if(req.get('origin')!==BASE)return res.status(403).json({error:'Origin mismatch'});next()};
@@ -342,6 +344,7 @@ res.redirect('/dashboard')}));
 app.post('/logout',csrf,(req,res)=>req.session.destroy(()=>res.json({ok:true})));
 const access=installAccess({app,db,withUser,csrf,safe,log});
 const streamActivity=installStreamActivity({app,db,withUser,access});
+installCreatorPayments({app,db,withUser,csrf,access,enc,dec,streamActivity,log,base:BASE});
 const subathon=installSubathon({app,db,withUser,csrf,access,log});
 const streamBoss=installStreamBoss({app,db,withUser,csrf,access,log});
 streamActivity.setOnEvent((...args)=>{subathon.onActivity(...args);streamBoss.onActivity(...args)});
