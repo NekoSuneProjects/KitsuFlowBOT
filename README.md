@@ -274,3 +274,11 @@ Donations and memberships can be configured as **opt-in, per-event** time additi
 
 **Production validation required:** the Socket.IO providers may differ by deployed protocol/version, real credentials and webhook test deliveries are necessary, and the live OBS alert browser source needs to be tested. This is an experimental feature in an unmerged PR, not a deployed or officially certified integration.
 
+
+### PR #59: Creator goals and reorganised Studio
+
+Studio has a dedicated **Creator Goals** page. A broadcaster can create any number of per-channel goals for follows, subscriptions, resubs, gifted subscriptions, raids, Bits, Kicks, VPZone support events and verified payment-provider donations/memberships, set a positive numeric target, and choose event counts or (for Bits/Kicks/donations) raw reported amounts. Progress updates from the existing deduplicated platform activity feed and automatically marks a goal **Completed** once the target is reached. The Dashboard shows active and completed goals, and the Goals page supports pause, resume, manual complete, reset and delete. Goals start at zero and are not retroactively populated from old activity. A donation goal targets one provider and uses the provider's original currency, without currency conversion.
+
+Studio navigation is now more focused: **Connections** is for account/bot linking and OAuth verification only. **Stream Title & Game** contains multi-platform metadata updates, AI title suggestions and the OBS control dock. **Multi-chat & TTS** contains the OBS source, speech settings and voice selection. **Chat Relay** contains routing, history, event preferences, diagnostics and cross-platform activity. **Alerts & Donations** remains the separate payment and alert configuration page. **Voice & Clips** displays a prominent Desktop companion **Alpha / Work in progress** warning with a link to report bugs at https://github.com/NekoSuneProjects/KitsuFlowBOT/issues/new.
+
+This functionality is in PR #59 only. Do not merge until explicitly approved.
