@@ -243,3 +243,17 @@ If an event does not include a count, one unit is assumed. Event categories not 
 
 Owner-only routes `/api/subathon/control`, `/api/subathon/settings` and `/api/subathon/rule` require session authorisation and CSRF checks. The overlay exposes only timer presentation and latest event data, not account credentials. This feature follows the broad Marathon Timer workflow from the reference screenshots but uses an original, simpler interface; goals, boss battles, multipliers and automated stream start/stop are not included in this first version.
 
+
+### Separate subathon OBS browser sources and Stream Boss
+
+This branch adds separate OBS Browser Source URLs under **Studio → Subathon Timer**:
+- `/subathon/overlay/timer/<key>`: timer only.
+- `/subathon/overlay/info/<key>`: list of enabled time rewards and their values, independent of timer.
+- `/subathon/overlay/compact/<key>`: blue compact panel with timer and reward lines, based on the supplied visual example.
+- The existing `/subathon/overlay/<key>` remains for compatibility.
+
+Each overlay uses the streamer's existing private public-source key; don't expose these URLs to untrusted viewers. Only enabled rewards appear in the information overlay. The timer state continues to live on the server.
+
+**Studio → Stream Boss** is a separate feature with its own overlay at `/stream-boss/overlay/<key>`, persisted HP, configurable maximum and per-defeat HP growth, boss names, counter, colours, transparency, manual hit/heal/reset and platform-specific damage rules for Twitch, Kick and VPZone engagement. The latest deduplicated activity feed delivers eligible events to both the subathon and boss, so a subathon time reward and boss damage can run independently. All boss damage rules are disabled until the streamer enables them. When damage reduces HP to zero, the attacker becomes the new boss.
+
+These are original KitsuFlowBOT overlays, not copies of Marathon Timer's assets. Browser-source previews and real platform event/quantity handling still require end-to-end testing before production deployment. Audio uploads, custom CSS and profile-avatar fetching are not implemented in this PR.
