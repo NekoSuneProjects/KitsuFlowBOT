@@ -44,17 +44,21 @@ export function installCreatorPayments({app,db,withUser,csrf,access,enc,dec,stre
   states.set(k,'connecting');
   if(provider==='streamelements'){
    const ws=new WebSocket('wss://astro.streamelements.com/');sockets.set(k,ws);
-   ws.on('open',()=>{
-    for(const topic of ['channel.tips']){
-     ws.send(JSON.stringify({type:'subscribe',nonce:crypto.randomUUID(),data:{topic,token,token_type:'jwt'}}));
-    }
-    states.set(k,'connected');
-   });
    ws.on('message',raw=>{try{
-    const m=JSON.parse(String(raw));if(m.type!=='message'&&m.type!=='event'&&m.type!=='publish')return;
-    if(m.data?.topic!=='channel.tips'&&m.topic!=='channel.tips')return;
-    const d=m.data?.data||m.data||{},tip=d.donation||d;
-    const id=tip._id||d._id||tip.id;
+    const m=JSON.parse(String(raw));
+    if(m.type==='welcome'){
+     ws.send(JSON.stringify({type:'subscribe',nonce:crypto.randomUUID(),data:{topic:'channel.tips',room:c.username,token,token_type:'jwt'}}));
+     return;
+    }
+    if(m.type==='response'){
+     if(m.error){states.set(k,'subscription_error');log(channel,'payment-subscription-error','streamelements: '+String(m.error).slice(0,100))}
+     else if(m.data?.topic==='channel.tips')states.set(k,'connected');
+     return;
+    }
+    if(m.type!=='message'||m.topic!=='channel.tips')return;
+    const d=m.data||{},tip=d.donation||{};
+    if(d.status!=='success'||(d.approved&&d.approved!=='allowed'))return;
+    const id=d._id||d.transactionId;
     if(!id||!(Number(tip.amount)>0))return;
     publish(channel,provider,id,'donation',tip.user?.username||tip.user?.name||tip.username||'Supporter',tip.amount,tip.currency);
    }catch(err){log(channel,'payment-event-error',provider+': '+err.message)}});
@@ -94,6 +98,7 @@ export function installCreatorPayments({app,db,withUser,csrf,access,enc,dec,stre
   const provider=req.params.provider;if(!supported.includes(provider))return res.sendStatus(404);
   const secret=String(req.body?.secret||'').trim(),username=String(req.body?.username||'').trim();
   if(secret.length<12||secret.length>4096)return res.status(400).json({error:'Supply a valid provider token or webhook secret'});
+  if(provider==='streamelements'&&!/^[a-z0-9]{15,50}$/i.test(username))return res.status(400).json({error:'StreamElements channel ID (24-character room ID) required'});
   if(provider==='tipeeestream'&&!/^[a-z0-9_-]{2,45}$/i.test(username))return res.status(400).json({error:'TipeeeStream username required'});
   db.prepare('INSERT INTO payment_connections(channel,provider,secret,username,enabled) VALUES(?,?,?,?,1) ON CONFLICT(channel,provider) DO UPDATE SET secret=excluded.secret,username=excluded.username,enabled=1')
    .run(req.channelId,provider,enc(secret),username);
