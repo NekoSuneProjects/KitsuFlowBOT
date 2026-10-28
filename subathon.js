@@ -27,7 +27,8 @@ export function installSubathon({app,db,withUser,csrf,access,log}){
  }
  function snapshot(channel,includePrivate=false){
   ensure(channel);const s=get(channel),remaining_ms=remainder(s);
-  return {running:Boolean(s.running&&remaining_ms>0),remaining_ms,max_ms:s.max_ms,title:s.title,accent:s.accent,text_color:s.text_color,background:s.background,transparent:Boolean(s.transparent),font:s.font,show_events:Boolean(s.show_events),...(includePrivate?{public_key:s.public_key,history:db.prepare('SELECT platform,event_type,actor,seconds,created FROM subathon_history WHERE channel=? ORDER BY id DESC LIMIT 25').all(channel)}:{})};
+  const last=Boolean(s.show_events)?db.prepare('SELECT platform,event_type,actor,seconds FROM subathon_history WHERE channel=? ORDER BY id DESC LIMIT 1').get(channel):null;
+  return {running:Boolean(s.running&&remaining_ms>0),remaining_ms,max_ms:s.max_ms,title:s.title,accent:s.accent,text_color:s.text_color,background:s.background,transparent:Boolean(s.transparent),font:s.font,show_events:Boolean(s.show_events),last_event:last||null,...(includePrivate?{public_key:s.public_key,history:db.prepare('SELECT platform,event_type,actor,seconds,created FROM subathon_history WHERE channel=? ORDER BY id DESC LIMIT 25').all(channel)}:{})};
  }
  function commitTime(channel,delta=0,mode=null){
   ensure(channel);const s=get(channel),now=Date.now(),base=remainder(s);
