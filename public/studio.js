@@ -353,6 +353,14 @@ async function connections(){
  const relayData=await api('/api/relay').catch(()=>({enabled:false,routes:[],history:[]}));
  const relayCard=card('Cross-platform chat relay','One master toggle. Choose which connected platforms participate; enabled platforms share messages with each other. OBS multi-chat works independently without relay.');
  const relayEnabled=input('Enable cross-platform chat relay',Boolean(relayData.enabled),'checkbox');
+ const relayJoins=input('Relay join notifications',Boolean(relayData.eventPreferences?.joins),'checkbox');
+ const relayAlerts=input('Relay system alerts (follows, gifts, raids, etc.)',Boolean(relayData.eventPreferences?.alerts),'checkbox');
+ relayCard.append(e('p','Viewer chat is relayed normally. VPZone join notices and system alerts are excluded unless enabled below. These switches apply to outgoing relay, not the OBS activity feed.','description'),relayJoins.node,relayAlerts.node,
+  actions(btn('Save event relay preferences',async()=>{
+   await api('/api/relay/events','POST',{joins:relayJoins.value(),alerts:relayAlerts.value()});
+   notify('Relay event preferences saved');
+  })));
+
  const active=new Set((relayData.routes||[]).filter(r=>r.enabled).flatMap(r=>[r.source,r.target]));
  const selected={};
  for(const platform of ['twitch','kick','vpzone','tiktok'])selected[platform]=input('Include '+platform.toUpperCase()+(platform==='tiktok'?' (receive only)':''),active.has(platform),'checkbox');
