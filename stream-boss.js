@@ -15,7 +15,7 @@ export function installStreamBoss({app,db,withUser,csrf,access,log}){
  CREATE TABLE IF NOT EXISTS stream_boss_history(
  id INTEGER PRIMARY KEY AUTOINCREMENT,channel TEXT NOT NULL,actor TEXT NOT NULL,platform TEXT NOT NULL,
  event_type TEXT NOT NULL,damage INTEGER NOT NULL,created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);`);
- const capabilities={twitch:['subscription','subscription_renewal','subscription_gift','cheer','follow','raid'],kick:['subscription','subscription_renewal','subscription_gift','kicks','follow'],vpzone:['subscription','subscription_renewal','subscription_gift','donation','follow','raid']};
+ const capabilities={twitch:['subscription','subscription_renewal','subscription_gift','cheer','follow','raid'],kick:['subscription','subscription_renewal','subscription_gift','kicks','follow'],vpzone:['subscription','subscription_renewal','subscription_gift','donation','follow','raid'],streamelements:['donation'],streamlabs:['donation'],tipeeestream:['donation','membership'],kofi:['donation','membership'],patreon:['membership']};
  const defaults={subscription:500,subscription_renewal:500,subscription_gift:500,cheer:1,kicks:1,donation:1};
  const row=channel=>db.prepare('SELECT * FROM stream_boss WHERE channel=?').get(channel);
  const ensure=channel=>{if(!row(channel))db.prepare('INSERT OR IGNORE INTO stream_boss(channel,public_key) VALUES(?,?)').run(channel,crypto.randomBytes(24).toString('hex'))};
