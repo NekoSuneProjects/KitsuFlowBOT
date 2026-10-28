@@ -10,6 +10,10 @@ import {installEngagement} from './engagement.js';
 import {installCreator} from './creator.js';
 import {installStreamActivity} from './stream-activity.js';
 import {installSubathon} from './subathon.js';
+import {installStreamBoss} from './stream-boss.js';
+import {installCreatorPayments} from './creator-payments.js';
+import {installStreamAlerts} from './stream-alerts.js';
+import {installCreatorGoals} from './creator-goals.js';
 import {installVoice} from './voice.js';
 import {installVoiceCompanion} from './voice-companion.js';
 import {installAccess} from './access.js';
@@ -320,8 +324,9 @@ async function connectChat(){
  }
  openSocket('wss://eventsub.wss.twitch.tv/ws');
 }
-const app=express();app.set('trust proxy',process.env.TRUST_PROXY==='true'?1:false);app.use(express.json({limit:'256kb',verify:(req,res,buffer)=>{if(req.path==='/webhooks/kick')req.rawBody=Buffer.from(buffer)}}));
+const app=express();app.set('trust proxy',process.env.TRUST_PROXY==='true'?1:false);app.use(express.json({limit:'256kb',verify:(req,res,buffer)=>{if(req.path==='/webhooks/kick'||req.path.startsWith('/webhooks/payments/patreon/'))req.rawBody=Buffer.from(buffer)}}));
 const Store=SQLiteStoreFactory(session);
+app.use(express.urlencoded({extended:false,limit:'128kb'}));
 app.use(session({store:new Store({db:'sessions.sqlite',dir:'data'}),name:'sn.sid',secret:process.env.SESSION_SECRET,resave:false,saveUninitialized:false,cookie:{httpOnly:true,sameSite:'lax',secure:BASE.startsWith('https:'),maxAge:86400000}}));
 const withUser=(req,res,next)=>req.session.uid?next():res.status(401).json({error:'Login required'});
 const csrf=(req,res,next)=>{if(req.get('origin')!==BASE)return res.status(403).json({error:'Origin mismatch'});next()};
@@ -341,8 +346,12 @@ res.redirect('/dashboard')}));
 app.post('/logout',csrf,(req,res)=>req.session.destroy(()=>res.json({ok:true})));
 const access=installAccess({app,db,withUser,csrf,safe,log});
 const streamActivity=installStreamActivity({app,db,withUser,access});
+installStreamAlerts({app,db,withUser,csrf,access});
+installCreatorPayments({app,db,withUser,csrf,access,enc,dec,streamActivity,log,base:BASE});
 const subathon=installSubathon({app,db,withUser,csrf,access,log});
-streamActivity.setOnEvent(subathon.onActivity);
+const streamBoss=installStreamBoss({app,db,withUser,csrf,access,log});
+const creatorGoals=installCreatorGoals({app,db,withUser,csrf,access});
+streamActivity.setOnEvent((...args)=>{subathon.onActivity(...args);streamBoss.onActivity(...args);creatorGoals.onActivity(...args)});
 streamActivity.setSender('twitch',say);
 app.get('/api/admin/logs',withUser,(req,res)=>{if(!isOperator(req.session.uid))return res.status(403).json({error:'Operator access required'});res.set('Cache-Control','no-store').json(db.prepare('SELECT l.channel,c.login,l.event,l.detail,l.created FROM logs l LEFT JOIN channels c ON c.id=l.channel ORDER BY l.id DESC LIMIT 250').all())});
 const creatorTools=installCreatorTools({app,db,withUser,csrf,access,enc,dec});

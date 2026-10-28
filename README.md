@@ -243,3 +243,42 @@ If an event does not include a count, one unit is assumed. Event categories not 
 
 Owner-only routes `/api/subathon/control`, `/api/subathon/settings` and `/api/subathon/rule` require session authorisation and CSRF checks. The overlay exposes only timer presentation and latest event data, not account credentials. This feature follows the broad Marathon Timer workflow from the reference screenshots but uses an original, simpler interface; goals, boss battles, multipliers and automated stream start/stop are not included in this first version.
 
+
+### Separate subathon OBS browser sources and Stream Boss
+
+This branch adds separate OBS Browser Source URLs under **Studio → Subathon Timer**:
+- `/subathon/overlay/timer/<key>`: timer only.
+- `/subathon/overlay/info/<key>`: list of enabled time rewards and their values, independent of timer.
+- `/subathon/overlay/compact/<key>`: blue compact panel with timer and reward lines, based on the supplied visual example.
+- The existing `/subathon/overlay/<key>` remains for compatibility.
+
+Each overlay uses the streamer's existing private public-source key; don't expose these URLs to untrusted viewers. Only enabled rewards appear in the information overlay. The timer state continues to live on the server.
+
+**Studio → Stream Boss** is a separate feature with its own overlay at `/stream-boss/overlay/<key>`, persisted HP, configurable maximum and per-defeat HP growth, boss names, counter, colours, transparency, manual hit/heal/reset and platform-specific damage rules for Twitch, Kick and VPZone engagement. The latest deduplicated activity feed delivers eligible events to both the subathon and boss, so a subathon time reward and boss damage can run independently. All boss damage rules are disabled until the streamer enables them. When damage reduces HP to zero, the attacker becomes the new boss.
+
+These are original KitsuFlowBOT overlays, not copies of Marathon Timer's assets. Browser-source previews and real platform event/quantity handling still require end-to-end testing before production deployment. Audio uploads, custom CSS and profile-avatar fetching are not implemented in this PR.
+
+### PR #59: Donations, supporter alerts and memberships
+
+**Studio → Alerts & Donations** adds a separate browser-source overlay for stream events and creator-support payments. Copy the private OBS source URL, configure its colours, transparent background, display duration and which event types show alerts. By default, alerts are off. Twitch, Kick and VPZone alerts use the existing engagement feed (the corresponding platform subscriptions must be active).
+
+Payment service credentials are stored using KitsuFlowBOT's existing AES-256-GCM database encryption and are never returned in API GET responses. Each service is independent and can be disconnected without affecting Twitch or the other payment connectors:
+
+- **StreamElements:** supply a channel-scoped JWT and its StreamElements channel ID (Astro *room*, often a 24-character hexadecimal ID). Server subscribes to `channel.tips` over the **Astro WebSocket**. Only successful, approved donations are accepted. The JWT is **not** a Streamlabs token. StreamElements official documentation: https://docs.streamelements.com/websockets and https://docs.streamelements.com/websockets/topics/channel-tips
+- **Streamlabs:** supply a **Socket API token**, not your normal Streamlabs account password. The server listens for `donation` events on Streamlabs' Socket.IO endpoint. Obtaining this token through Streamlabs' OAuth API may require Streamlabs app access. Docs: https://dev.streamlabs.com/docs/socket-api
+- **TipeeeStream:** supply your API key plus your TipeeeStream username. The listener connects to its Socket.IO event endpoint and joins your account room. Docs: https://api.tipeeestream.com/api-doc/socketio
+- **Ko-fi:** supply the Ko-fi webhook **verification token** and copy the generated HTTPS webhook URL into your Ko-fi Webhooks dashboard. Ko-fi sends URL-encoded requests containing JSON `data`; KitsuFlowBOT verifies `verification_token` and deduplicates `message_id`. Supports tips, membership payments, and shop purchases. Ko-fi cannot report membership cancellation via this webhook. Docs: https://help.ko-fi.com/hc/en-us/articles/360004162298-Does-Ko-fi-have-an-API-or-webhook
+- **Patreon:** create a Patreon developer webhook for your campaign, using API v2 `members:*` triggers, and provide its **webhook secret** (not a creator access token) to KitsuFlowBOT. Copy the provided HTTPS URL to Patreon. Requests require an exact valid `X-Patreon-Signature` (raw-body HMAC-MD5) and are deduplicated. New pledges, pledge updates, membership changes and cancellations are shown; tier names and monthly entitlement amounts are included **when Patreon supplies them and the webhook scopes permit them**. Patreon pledge amounts are not proof that a charge has succeeded, and membership changes are not automatically recorded as paid donations. Docs: https://docs.patreon.com/
+
+Donations and memberships can be configured as **opt-in, per-event** time additions in Subathon and damage in Stream Boss, with rules disabled by default. Different currencies are **not converted**; the event feed preserves reported amounts and currency. This PR does not implement refund adjustments, donation reconciliation across multiple services, paid-charge verification for Patreon, or recurring membership billing itself.
+
+**Production validation required:** the Socket.IO providers may differ by deployed protocol/version, real credentials and webhook test deliveries are necessary, and the live OBS alert browser source needs to be tested. This is an experimental feature in an unmerged PR, not a deployed or officially certified integration.
+
+
+### PR #59: Creator goals and reorganised Studio
+
+Studio has a dedicated **Creator Goals** page. A broadcaster can create any number of per-channel goals for follows, subscriptions, resubs, gifted subscriptions, raids, Bits, Kicks, VPZone support events and verified payment-provider donations/memberships, set a positive numeric target, and choose event counts or (for Bits/Kicks/donations) raw reported amounts. Progress updates from the existing deduplicated platform activity feed and automatically marks a goal **Completed** once the target is reached. The Dashboard shows active and completed goals, and the Goals page supports pause, resume, manual complete, reset and delete. Goals start at zero and are not retroactively populated from old activity. A donation goal targets one provider and uses the provider's original currency, without currency conversion.
+
+Studio navigation is now more focused: **Connections** is for account/bot linking and OAuth verification only. **Stream Title & Game** contains multi-platform metadata updates, AI title suggestions and the OBS control dock. **Multi-chat & TTS** contains the OBS source, speech settings and voice selection. **Chat Relay** contains routing, history, event preferences, diagnostics and cross-platform activity. **Alerts & Donations** remains the separate payment and alert configuration page. **Voice & Clips** displays a prominent Desktop companion **Alpha / Work in progress** warning with a link to report bugs at https://github.com/NekoSuneProjects/KitsuFlowBOT/issues/new.
+
+This functionality is in PR #59 only. Do not merge until explicitly approved.

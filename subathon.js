@@ -15,7 +15,7 @@ export function installSubathon({app,db,withUser,csrf,access,log}){
  CREATE TABLE IF NOT EXISTS subathon_history(id INTEGER PRIMARY KEY AUTOINCREMENT,channel TEXT NOT NULL,
  platform TEXT NOT NULL,event_type TEXT NOT NULL,actor TEXT NOT NULL DEFAULT '',
  seconds INTEGER NOT NULL,created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);`);
- const definitions={twitch:['follow','subscription','subscription_renewal','subscription_gift','cheer','raid'],kick:['follow','subscription','subscription_renewal','subscription_gift','kicks'],vpzone:['follow','subscription','subscription_gift','donation','raid']};
+ const definitions={twitch:['follow','subscription','subscription_renewal','subscription_gift','cheer','raid'],kick:['follow','subscription','subscription_renewal','subscription_gift','kicks'],vpzone:['follow','subscription','subscription_gift','donation','raid'],streamelements:['donation'],streamlabs:['donation'],tipeeestream:['donation','membership'],kofi:['donation','membership'],patreon:['membership']};
  const defaults={subscription:60,subscription_renewal:60,subscription_gift:60,cheer:60,kicks:60};
  const get=channel=>db.prepare('SELECT * FROM subathon_state WHERE channel=?').get(channel);
  function ensure(channel){
@@ -89,6 +89,18 @@ export function installSubathon({app,db,withUser,csrf,access,log}){
   const row=db.prepare('SELECT channel FROM subathon_state WHERE public_key=?').get(String(req.params.key||''));
   if(!row)return res.sendStatus(404);
   res.set('Cache-Control','no-store').json(snapshot(row.channel));
+ });
+ app.get('/api/subathon/rewards/:key',(req,res)=>{
+  const row=db.prepare('SELECT channel FROM subathon_state WHERE public_key=?').get(String(req.params.key||''));
+  if(!row)return res.sendStatus(404);
+  const state=snapshot(row.channel);
+  const rules=db.prepare('SELECT platform,event_type,seconds,per_unit FROM subathon_rules WHERE channel=? AND enabled=1 AND seconds>0 ORDER BY platform,event_type').all(row.channel);
+  res.set('Cache-Control','no-store').json({...state,rules});
+ });
+ app.get('/subathon/overlay/:mode/:key',(req,res)=>{
+  if(!['timer','info','compact'].includes(req.params.mode))return res.sendStatus(404);
+  if(!db.prepare('SELECT 1 FROM subathon_state WHERE public_key=?').get(String(req.params.key||'')))return res.sendStatus(404);
+  res.set('Cache-Control','no-store').sendFile('subathon-parts.html',{root:process.cwd()+'/public'});
  });
  app.get('/subathon/overlay/:key',(req,res)=>{
   const row=db.prepare('SELECT 1 FROM subathon_state WHERE public_key=?').get(String(req.params.key||''));
