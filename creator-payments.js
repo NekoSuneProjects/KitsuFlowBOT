@@ -134,7 +134,7 @@ export function installCreatorPayments({app,db,withUser,csrf,access,enc,dec,stre
   const payload=req.body||{},member=payload.data||{},a=member.attributes||{};
   const id=String(member.id||'')+':'+event+':'+String(a.last_charge_date||a.pledge_relationship_start||a.updated_at||'');
   if(!member.id)return res.sendStatus(400);
-  const type=event==='members:pledge:create'?'membership':event==='members:pledge:update'?'membership_update':event==='members:pledge:delete'?'membership_end':event==='members:create'?'membership':event==='members:delete'?'membership_end':'';
+  const type=event==='members:pledge:create'?'membership':event==='members:pledge:update'?'membership_update':event==='members:pledge:delete'?'membership_end':event==='members:create'?'membership':event==='members:update'?'membership_update':event==='members:delete'?'membership_end':'';
   if(!type)return res.sendStatus(200);
   // Changes to pledges are informational. Only verified paid patron charges should count as donations.
   const amount=Number(a.currently_entitled_amount_cents||0)/100;
