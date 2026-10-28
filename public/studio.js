@@ -1,9 +1,9 @@
 (()=>{'use strict';
 const $=s=>document.querySelector(s),e=(tag,text,cls)=>{const x=document.createElement(tag);if(text!==undefined)x.textContent=text;if(cls)x.className=cls;return x}, h=(tag,cls,...children)=>{const x=e(tag,undefined,cls);for(const y of children)if(y!=null)x.append(typeof y==='string'?document.createTextNode(y):y);return x};
 let state=null,access=null,creator=null,engagement=null,page='overview';
-const groups=[['WORKSPACE',[['overview','◫','Overview'],['activity','◷','Activity Feed'],['reports','▥','Data & Reports']]],['BOT MANAGEMENT',[['commands','⌘','Custom Commands'],['timers','◴','Timers'],['moderation','◇','Moderation'],['voice','◉','Voice & Clips']]],['COMMUNITY',[['loyalty','✧','Loyalty & Points'],['campaigns','♢','Giveaways & Contests'],['store','▣','Stream Store'],['queue','☷','Viewer Queue'],['quotes','❞','Quotes & Counters']]],['STREAM TOOLS',[['overlays','▤','Overlay Studio'],['subathon','⏳','Subathon Timer'],['connections','⇄','Connections']]],['SETTINGS',[['channel','⚙','Channel Settings'],['team','♙','Team & Invites'],['admin','♛','Admin Panel']]]];
-const ownerPages=new Set(['connections','team','channel','overlays','subathon']);
-const descriptions={overview:'A clear view of everything happening across your channel.',activity:'Recent messages, moderation and bot activity.',reports:'Understand loyalty activity, redemptions and channel engagement.',commands:'Create and manage the commands your viewers can use.',timers:'Schedule automatic Twitch chat announcements.',moderation:'Keep your community safe with moderation controls.',voice:'Create clips with your voice or a single click.',loyalty:'Configure loyalty rewards and view community standings.',campaigns:'Run community giveaways and draw winners.',store:'Manage redeemable loyalty-point rewards.',queue:'Organise who plays or joins you next.',quotes:'Capture favourite moments and manage counters.',overlays:'Create OBS browser sources for your stream.',subathon:'Run a cross-platform subathon with automatic time rewards and a custom OBS countdown.',connections:'View broadcaster and shared public bot status.',channel:'Manage your own channel and security credentials.',team:'Invite editors and trusted moderators.',admin:'Configure and monitor the public bot for all channels.'};
+const groups=[['WORKSPACE',[['overview','◫','Overview'],['activity','◷','Activity Feed'],['reports','▥','Data & Reports']]],['BOT MANAGEMENT',[['commands','⌘','Custom Commands'],['timers','◴','Timers'],['moderation','◇','Moderation'],['voice','◉','Voice & Clips']]],['COMMUNITY',[['loyalty','✧','Loyalty & Points'],['campaigns','♢','Giveaways & Contests'],['store','▣','Stream Store'],['queue','☷','Viewer Queue'],['quotes','❞','Quotes & Counters']]],['STREAM TOOLS',[['overlays','▤','Overlay Studio'],['subathon','⏳','Subathon Timer'],['streamboss','⚔','Stream Boss'],['connections','⇄','Connections']]],['SETTINGS',[['channel','⚙','Channel Settings'],['team','♙','Team & Invites'],['admin','♛','Admin Panel']]]];
+const ownerPages=new Set(['connections','team','channel','overlays','subathon','streamboss']);
+const descriptions={overview:'A clear view of everything happening across your channel.',activity:'Recent messages, moderation and bot activity.',reports:'Understand loyalty activity, redemptions and channel engagement.',commands:'Create and manage the commands your viewers can use.',timers:'Schedule automatic Twitch chat announcements.',moderation:'Keep your community safe with moderation controls.',voice:'Create clips with your voice or a single click.',loyalty:'Configure loyalty rewards and view community standings.',campaigns:'Run community giveaways and draw winners.',store:'Manage redeemable loyalty-point rewards.',queue:'Organise who plays or joins you next.',quotes:'Capture favourite moments and manage counters.',overlays:'Create OBS browser sources for your stream.',subathon:'Run a cross-platform subathon with automatic time rewards and a custom OBS countdown.',streamboss:'Customisable standalone Stream Boss with health, event damage and an OBS overlay.',connections:'View broadcaster and shared public bot status.',channel:'Manage your own channel and security credentials.',team:'Invite editors and trusted moderators.',admin:'Configure and monitor the public bot for all channels.'};
 function notify(text){$('#notice').textContent=text;setTimeout(()=>{if($('#notice').textContent===text)$('#notice').textContent=''},6500)}
 async function api(path,method='GET',body){const r=await fetch(path,{method,headers:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});let x;try{x=await r.json()}catch{x={error:'Unexpected server response'}}if(!r.ok)throw Error(x.error||'Request failed');return x}
 const error=fn=>async(...args)=>{try{return await fn(...args)}catch(ex){notify(ex.message)}};
@@ -222,6 +222,12 @@ async function subathon(){
  current.append(shown,adjust.node,actions(btn('Start',()=>control('start'),'primary'),btn('Pause',()=>control('pause')),btn('Add time',()=>control('add')),btn('Remove time',()=>control('remove')),btn('Set time',()=>control('set')),btn('Reset',()=>control('reset'))));
  root.append(current);
  const ov=card('OBS subathon countdown overlay','Use as a Browser Source in OBS. Timer updates automatically and supports transparent backgrounds.');
+ const split=card('Separate OBS sources','Add each link as a separate Browser Source in OBS. The compact layout displays timer and time-reward rows like the reference image.');
+ for(const [label,mode] of [['Timer only','timer'],['Subathon rewards only','info'],['Compact blue timer + rewards','compact']]){
+  const u=location.origin+'/subathon/overlay/'+mode+'/'+d.public_key,field=input(label,u);field.el.readOnly=true;
+  split.append(field.node,actions(btn('Copy '+label,()=>navigator.clipboard.writeText(u)),link('Preview',u)));
+ }
+ root.append(split);
  const url=location.origin+'/subathon/overlay/'+d.public_key;
  const urlField=input('OBS Browser Source URL',url);urlField.el.readOnly=true;
  const titleField=input('Overlay title',d.title),maximum=input('Maximum timer hours (0 = no limit)',d.max_ms/3600000,'number');
@@ -252,6 +258,43 @@ async function subathon(){
  root.append(rewards);
  const history=card('Time added by recent events');
  history.append(table(['Platform','Event','Viewer','Seconds','When'],(d.history||[]).map(x=>[x.platform,x.event_type,x.actor,'+'+x.seconds,x.created])));
+ root.append(history);
+ return root;
+}
+async function streamboss(){
+ const d=await api('/api/stream-boss');
+ const root=h('div','stack'),settings=card('Stream Boss','A standalone OBS boss widget. Event damage is OFF by default. The viewer delivering the final blow becomes the new boss.');
+ const enabled=input('Enable Stream Boss',d.enabled,'checkbox'),name=input('Current boss name',d.name),title=input('Overlay title',d.title);
+ const hp=input('Max HP',d.max_hp,'number'),step=input('HP increase after a K.O.',d.step_hp,'number');
+ const accent=input('Accent colour',d.accent,'color'),background=input('Background',d.background,'color'),textColour=input('Text colour',d.text_color,'color');
+ const transparent=input('Transparent background',d.transparent,'checkbox'),animate=input('Animations',d.show_animation,'checkbox');
+ const save=async()=>{await api('/api/stream-boss/settings','POST',{enabled:enabled.value(),name:name.value(),title:title.value(),max_hp:hp.value(),step_hp:step.value(),accent:accent.value(),background:background.value(),text_color:textColour.value(),transparent:transparent.value(),show_animation:animate.value()});notify('Stream Boss settings saved');await reloadView()};
+ settings.append(e('p','Current health: '+d.hp.toLocaleString()+' / '+d.max_hp.toLocaleString()+' · Boss defeats: '+d.wins,'description'),
+  grid('cols2',enabled.node,name.node,title.node,hp.node,step.node,accent.node,background.node,textColour.node,transparent.node,animate.node),
+  actions(btn('Save Stream Boss settings',save,'primary')));
+ root.append(settings);
+ const controls=card('Live HP controls','Manually test damage or heal while live.');
+ const amount=input('HP amount',500,'number');
+ controls.append(amount.node,actions(btn('Test a hit',async()=>{await api('/api/stream-boss/control','POST',{action:'hit',amount:amount.value()});await reloadView()}),btn('Heal',async()=>{await api('/api/stream-boss/control','POST',{action:'heal',amount:amount.value()});await reloadView()}),btn('Reset HP',async()=>{await api('/api/stream-boss/control','POST',{action:'reset',amount:0});await reloadView()})));
+ root.append(controls);
+ const source=card('Stream Boss OBS browser source','Separate from your subathon timer and information overlays.');
+ const url=location.origin+'/stream-boss/overlay/'+d.public_key,field=input('Stream Boss URL',url);field.el.readOnly=true;
+ source.append(field.node,actions(btn('Copy browser source',()=>navigator.clipboard.writeText(url)),link('Open preview',url)));
+ root.append(source);
+ const rewards=card('Damage rules','Enable which platform events damage the boss. Per unit applies to Bits, Kicks and gifted subscriptions when a reliable amount is provided.');
+ const rules=new Map(d.rules.map(x=>[x.platform+':'+x.event_type,x]));
+ for(const [platform,events] of Object.entries(d.capabilities)){
+  const section=card(platform.toUpperCase());
+  for(const event_type of events){
+   const entry=rules.get(platform+':'+event_type)||{enabled:false,damage:['subscription','subscription_renewal','subscription_gift'].includes(event_type)?500:0,per_unit:['cheer','kicks','donation','subscription_gift'].includes(event_type)};
+   const on=input(event_type.replaceAll('_',' '),Boolean(entry.enabled),'checkbox'),damage=input('HP damage',entry.damage,'number'),unit=input('Per unit',Boolean(entry.per_unit),'checkbox');
+   section.append(h('div','list-row',on.node,damage.node,unit.node,btn('Save',async()=>{await api('/api/stream-boss/rule','POST',{platform,event_type,enabled:on.value(),damage:damage.value(),per_unit:unit.value()});notify('Boss damage rule saved')})));
+  }
+  rewards.append(section);
+ }
+ root.append(rewards);
+ const history=card('Recent boss hits');
+ history.append(table(['Who','Platform','Event','HP lost','Time'],d.history.map(x=>[x.actor,x.platform,x.event_type,x.damage,x.created])));
  root.append(history);
  return root;
 }
@@ -460,7 +503,7 @@ c.append(device);
 c.append(actions(btn('Reconnect bot EventSub',async()=>{await api('/api/admin/bot/reconnect','POST');notify('Reconnection requested');await show('admin')})),e('h3','Connected channels'),table(['Channel','Twitch ID','Enabled'],x.channels.map(v=>['@'+v.login,v.id,v.enabled?'Yes':'No'])));if(x.bot?.login===state.channel.login)c.append(e('div','Warning: The bot and broadcaster are the same Twitch account. For a public multi-channel bot, authorise a dedicated bot Twitch account instead.','empty'));const logs=await adminLogs();const diagnostics=card('Bot & platform logs','Operational diagnostics, integration errors, chat command logs and connection history.');diagnostics.append(table(['Time','Channel','Type','Detail'],logs.map(v=>[v.created,v.login||v.channel,v.event,v.detail])));return h('div','stack',c,diagnostics)}
 async function adminLogs(){return await api('/api/admin/logs').catch(()=>[])}
 
-const views={overview,activity,reports,commands,timers,moderation,voice,loyalty,campaigns,store,queue,quotes,overlays,subathon,connections,channel,team,admin};
+const views={overview,activity,reports,commands,timers,moderation,voice,loyalty,campaigns,store,queue,quotes,overlays,subathon,streamboss,connections,channel,team,admin};
 async function show(id){if((id==='admin'&&!state.isOperator)||(ownerPages.has(id)&&access.role!=='owner'))id='overview';page=id;$('#crumb').textContent=groups.flatMap(x=>x[1]).find(x=>x[0]===id)?.[2]||id;$('#page-title').textContent=$('#crumb').textContent;$('#page-desc').textContent=descriptions[id];$('#kicker').textContent=id==='admin'?'PLATFORM ADMINISTRATION':'CREATOR CONTROL CENTER';document.querySelectorAll('.nav-link').forEach(x=>x.classList.toggle('active',x.dataset.page===id));const view=$('#view');view.replaceChildren(e('p','Loading...','muted'));try{const result=await views[id]();view.replaceChildren(result)}catch(ex){view.replaceChildren(e('div','Failed to load page: '+ex.message,'empty'))}}
 // Live dashboard activity refresh while the Activity Feed page is displayed.
 let lastActivitySignature='';
