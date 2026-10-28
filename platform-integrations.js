@@ -51,11 +51,20 @@ export function installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base,i
      const username=String(item.username||item.sender?.username||'');
      const body=String(item.body||item.content||item.text||'').slice(0,350);
      if(!username||!body)return;
+     // VPZone sends platform-generated events through its websocket alongside viewer chat.
+     // Classify them before relay so joins and alerts are OFF unless explicitly enabled.
+     const kindText=String(item.type||item.event||eventKind||'').toLowerCase();
+     const isSystemSender=/^(system|vpzone|notification|server)$/i.test(username)||item.is_system===true||item.system===true||event.is_system===true;
+     const isJoin=/\\b(join|joined|user_join|member_join|viewer_join|enter)\\b/i.test(kindText)||
+       (isSystemSender&&/\\b(just joined|joined (the )?(channel|chat|stream)|entered (the )?(channel|chat))\\b/i.test(body));
+     const isAlert=/\\b(follow|subscribe|subscription|gift|donation|tip|raid|alert|cheer|redeem)\\b/i.test(kindText)||
+       (isSystemSender&&/\\b(followed|subscribed|gifted|donated|raided|redeemed|cheered)\\b/i.test(body));
+     const eventType=isJoin?'joins':isAlert?'alerts':isSystemSender?'system':'chat';
      const bot=db.prepare("SELECT external_id,display_name FROM platform_bot_accounts WHERE platform='vpzone'").get();
      const isBot=Boolean(bot&&(String(item.user_id||item.sender?.id||'')===bot.external_id||username.toLowerCase()===bot.display_name.toLowerCase()));
      if(!isBot){
-      void relay.relay(channel,'vpzone',username,body,{isBot:false,fragments:item.fragments||item.emotes||[]}).catch(err=>log(channel,'vpzone-relay-error',err.message));
-      void handleVpzoneCommand(channel,username,body,item).catch(err=>log(channel,'vpzone-command-error',err.message));
+      void relay.relay(channel,'vpzone',username,body,{isBot:false,kind:eventType,fragments:item.fragments||item.emotes||[]}).catch(err=>log(channel,'vpzone-relay-error',err.message));
+      if(eventType==='chat')void handleVpzoneCommand(channel,username,body,item).catch(err=>log(channel,'vpzone-command-error',err.message));
      }
     }catch(err){log(channel,'vpzone-event-error',err.message)}
    });
