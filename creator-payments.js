@@ -78,14 +78,25 @@ export function installCreatorPayments({app,db,withUser,csrf,access,enc,dec,stre
    socket.on('connect_error',()=>states.set(k,'error'));return;
   }
   // TipeeeStream's Socket.IO protocol requires joining a room with API key + username.
-  const socket=io('https://sso-cf.tipeeestream.com:443',{transports:['websocket'],query:{access_token:token},reconnection:true});sockets.set(k,socket);
-  socket.on('connect',()=>{states.set(k,'connected');socket.emit('join-room',{room:token,username:c.username})});
-  socket.on('new-event',data=>{
-   const ev=data?.event;if(!ev?.id||!['donation','subscription'].includes(ev.type))return;
-   const p=ev.parameters||{};
-   publish(channel,provider,ev.id,ev.type==='subscription'?'membership':'donation',p.username||ev.user?.username||'Supporter',p.amount||0,p.currency||'',p.tier||'');
-  });
-  socket.on('connect_error',()=>states.set(k,'error'));
+  // Discover the current official Socket.IO host instead of assuming a 2019 endpoint.
+  void (async()=>{
+   try{
+    const response=await fetch('https://api.tipeeestream.com/v2.0/site/socket',{signal:AbortSignal.timeout(8000)});
+    if(!response.ok)throw Error('TipeeeStream socket discovery HTTP '+response.status);
+    const details=(await response.json()).datas||{},u=new URL(String(details.host||''));
+    if(u.protocol!=='https:'||!(u.hostname==='tipeeestream.com'||u.hostname.endsWith('.tipeeestream.com')))throw Error('Unexpected TipeeeStream socket host');
+    if(details.port&&String(details.port)!=='443')throw Error('Unsupported TipeeeStream socket port');
+    if(!conn(channel,provider)||states.get(k)!=='connecting')return;
+    const socket=io(u.origin,{transports:['websocket'],query:{access_token:token},reconnection:true});sockets.set(k,socket);
+    socket.on('connect',()=>{states.set(k,'connected');socket.emit('join-room',{room:token,username:c.username})});
+    socket.on('new-event',data=>{
+     const ev=data?.event;if(!ev?.id||!['donation','subscription'].includes(ev.type))return;
+     const p=ev.parameters||{};
+     publish(channel,provider,ev.id,ev.type==='subscription'?'membership':'donation',p.username||ev.user?.username||'Supporter',p.amount||0,p.currency||'',p.tier||'');
+    });
+    socket.on('connect_error',()=>states.set(k,'error'));
+   }catch(err){states.set(k,'error');log(channel,'payment-connect-error','tipeeestream: '+String(err.message||err).slice(0,160));retry(channel,provider)}
+  })();
  }
  function status(channel,provider){
   return {provider,connected:Boolean(conn(channel,provider)),status:states.get(key(channel,provider))||'not_connected',webhook_url:base+'/webhooks/payments/'+provider+'/'+encodeURIComponent(channel)};
