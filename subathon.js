@@ -90,6 +90,18 @@ export function installSubathon({app,db,withUser,csrf,access,log}){
   if(!row)return res.sendStatus(404);
   res.set('Cache-Control','no-store').json(snapshot(row.channel));
  });
+ app.get('/api/subathon/rewards/:key',(req,res)=>{
+  const row=db.prepare('SELECT channel FROM subathon_state WHERE public_key=?').get(String(req.params.key||''));
+  if(!row)return res.sendStatus(404);
+  const state=snapshot(row.channel);
+  const rules=db.prepare('SELECT platform,event_type,seconds,per_unit FROM subathon_rules WHERE channel=? AND enabled=1 AND seconds>0 ORDER BY platform,event_type').all(row.channel);
+  res.set('Cache-Control','no-store').json({...state,rules});
+ });
+ app.get('/subathon/overlay/:mode/:key',(req,res)=>{
+  if(!['timer','info','compact'].includes(req.params.mode))return res.sendStatus(404);
+  if(!db.prepare('SELECT 1 FROM subathon_state WHERE public_key=?').get(String(req.params.key||'')))return res.sendStatus(404);
+  res.set('Cache-Control','no-store').sendFile('subathon-parts.html',{root:process.cwd()+'/public'});
+ });
  app.get('/subathon/overlay/:key',(req,res)=>{
   const row=db.prepare('SELECT 1 FROM subathon_state WHERE public_key=?').get(String(req.params.key||''));
   if(!row)return res.sendStatus(404);
