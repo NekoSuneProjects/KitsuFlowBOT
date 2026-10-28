@@ -42,7 +42,7 @@ export function installStreamActivity({app,db,withUser,access}){
   const mapping={
    twitch:{'channel.follow':'follow','channel.subscribe':'subscription','channel.subscription.message':'subscription_renewal','channel.subscription.gift':'subscription_gift','channel.raid':'raid','channel.cheer':'cheer','channel.channel_points_custom_reward_redemption.add':'reward'},
    kick:{'channel.followed':'follow','channel.subscription.new':'subscription','channel.subscription.renewal':'subscription_renewal','channel.subscription.gifts':'subscription_gift','channel.raid':'raid','kicks.gifted':'kicks'},
-   vpzone:{'follow':'follow','follower':'follow','subscription':'subscription','subscribe':'subscription','raid':'raid','kicks':'kicks','donation':'donation'}
+   vpzone:{'follow':'follow','follower':'follow','subscription':'subscription','subscribe':'subscription','resub':'subscription_renewal','subscription.renewal':'subscription_renewal','subscription_gift':'subscription_gift','subscription.gift':'subscription_gift','gift_subscription':'subscription_gift','raid':'raid','kicks':'kicks','donation':'donation'}
   };
   return mapping[platform]?.[v]|| (types.has(v)?v:null);
  };
