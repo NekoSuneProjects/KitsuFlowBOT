@@ -29,6 +29,7 @@ jobs:
           node --check voice-companion.js
           node --check chat-clip.js
           node --check global-commands-extra.js
+          node --check pokemon-game.js
           python3 -m py_compile voice-worker.py
       - name: Verify required Studio assets
         run: |

@@ -17,6 +17,7 @@ import {installCreatorGoals} from './creator-goals.js';
 import {installVoice} from './voice.js';
 import {installVoiceCompanion} from './voice-companion.js';
 import {installChatClip} from './chat-clip.js';
+import {installPokemon} from './pokemon-game.js';
 import {EXTRA_COMMANDS,createExtraCommands} from './global-commands-extra.js';
 import {installAccess} from './access.js';
 import {installPlatforms} from './platform-integrations.js';
@@ -155,6 +156,7 @@ if(ch.links&&!isMod&&!permitted&&hasLink){try{await moderate(ch.id,e.chatter_use
 try{
 if(await engagement.onMessage(ch,e,value,parts,isMod))return;
 if(await creator.onMessage(ch,e,value,parts,isMod))return;
+if(await pokemon.onMessage(ch,e,parts,isMod))return;
 if(!cmd?.startsWith('!')){if(isGlobalEnabled(ch.id,'trivia'))await extras().onChat(ch,e,value);return}
 const globalName=cmd==='!command'?'commands':cmd.slice(1);
 if(GLOBAL_COMMANDS[globalName]&&isGlobalEnabled(ch.id,globalName)){
@@ -492,7 +494,7 @@ app.get('/api/chat-diagnostics',withUser,access.channelOnly('owner'),(req,res)=>
 app.get('/api/state',withUser,(req,res)=>{const ch=db.prepare('SELECT * FROM channels WHERE id=?').get(req.channelId);res.json({channel:ch,role:access.role(req.session.uid,req.channelId),isOperator:isOperator(req.session.uid),bot:(()=>{const b=getAccount(botId());return b?{id:b.id,login:b.login}:null})(),commands:db.prepare('SELECT * FROM commands WHERE channel=? ORDER BY name').all(req.channelId),logs:db.prepare('SELECT * FROM logs WHERE channel=? ORDER BY id DESC LIMIT 30').all(req.channelId)})});
 app.post('/api/settings',withUser,access.channelOnly('owner'),csrf,(req,res)=>{if(req.body.enabled===true&&!botId())return res.status(409).json({error:'Shared bot is not connected yet'});db.prepare('UPDATE channels SET enabled=?,links=? WHERE id=?').run(req.body.enabled===true?1:0,req.body.links===true?1:0,req.channelId);connectChat();res.json({ok:true})});
 app.post('/api/channel/disconnect',withUser,access.channelOnly('owner'),csrf,(req,res)=>{const id=req.channelId;db.prepare('UPDATE channels SET enabled=0 WHERE id=?').run(id);db.prepare('DELETE FROM accounts WHERE id=? AND id != ?').run(id,botId()||'');connectChat();req.session.destroy(()=>res.json({ok:true}))});
-app.post('/api/commands',withUser,access.channelOnly('editor'),csrf,(req,res)=>{const name=String(req.body.name||'').toLowerCase().replace(/^!/,'');const response=String(req.body.response||'');if(!/^[a-z0-9_]{1,32}$/.test(name)||['clip','ban','timeout','uptime','points','top','addquote','quote','counter',...Object.keys(GLOBAL_COMMANDS)].includes(name)||!response||response.length>450||!['everyone','subscriber','moderator'].includes(req.body.level))return res.status(400).json({error:'Invalid command'});db.prepare('INSERT INTO commands(channel,name,response,cooldown,level) VALUES(?,?,?,?,?) ON CONFLICT(channel,name) DO UPDATE SET response=excluded.response,cooldown=excluded.cooldown,level=excluded.level').run(req.channelId,name,response,Math.max(0,Math.min(3600,Number(req.body.cooldown)||0)),req.body.level);res.json({ok:true})});
+app.post('/api/commands',withUser,access.channelOnly('editor'),csrf,(req,res)=>{const name=String(req.body.name||'').toLowerCase().replace(/^!/,'');const response=String(req.body.response||'');if(!/^[a-z0-9_]{1,32}$/.test(name)||['clip','ban','timeout','uptime','points','top','addquote','quote','counter',...Object.keys(GLOBAL_COMMANDS),...pokemon.reserved].includes(name)||!response||response.length>450||!['everyone','subscriber','moderator'].includes(req.body.level))return res.status(400).json({error:'Invalid command'});db.prepare('INSERT INTO commands(channel,name,response,cooldown,level) VALUES(?,?,?,?,?) ON CONFLICT(channel,name) DO UPDATE SET response=excluded.response,cooldown=excluded.cooldown,level=excluded.level').run(req.channelId,name,response,Math.max(0,Math.min(3600,Number(req.body.cooldown)||0)),req.body.level);res.json({ok:true})});
 app.delete('/api/commands/:name',withUser,access.channelOnly('editor'),csrf,(req,res)=>{db.prepare('DELETE FROM commands WHERE channel=? AND name=?').run(req.channelId,req.params.name);res.json({ok:true})});
 app.post('/api/clip',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{const c=await clip(req.channelId);res.json(c)}));
 app.post('/api/moderate',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{if(!['ban','timeout'].includes(req.body.action))throw Error('Invalid action');const uid=await lookup(String(req.body.user||''));const seconds=req.body.action==='timeout'?Math.max(1,Math.min(1209600,Number(req.body.seconds)||600)):null;await moderate(req.channelId,uid,seconds,'Dashboard moderation');log(req.channelId,req.body.action,req.body.user);res.json({ok:true})}));
@@ -500,6 +502,7 @@ const engagement=installEngagement({app,db,withUser,csrf,safe,say,moderate,log,a
 const creator=installCreator({app,db,withUser,csrf,safe,log,say,access});
 installVoice({app,db,withUser,csrf,access,api,clip,log,say});
 installVoiceCompanion({app,db,withUser,csrf,access,api,clip,log,say});
+const pokemon=installPokemon({app,db,withUser,csrf,access,api,say,log,isOperator,botId});
 const chatClip=installChatClip({app,db,withUser,csrf,access,api,clip,log,say});
 const platformRuntime=installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,relay,streamActivity,twitchApi:api});
 creatorTools.setProviderStatus(channel=>{

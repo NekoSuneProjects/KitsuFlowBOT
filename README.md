@@ -51,6 +51,16 @@ Toggle each one per channel under **Custom Commands → Global bot commands**.
 
 Fun and points commands use a 5-second per-viewer cooldown; info commands use a 10-second per-channel cooldown. Points bets are debited atomically, so spamming cannot spend points twice.
 
+## Pokémon chat game
+
+Turn it on per channel in **Studio → Community → Pokémon Game** (off by default).
+
+- **Wild spawns:** while the channel is live, a random Gen 1 Pokémon spawns every N minutes (default 15). Viewers have 90 seconds to `!pokecatch [pokeball|greatball|ultraball|masterball]`. Everyone can catch the same spawn. Rarity tiers (Common to Epic) change spawn and catch odds, and 1 in 256 spawns is ✨ shiny. Legendaries only appear in raids.
+- **PokéShop:** `!pokeshop`, `!pokebuy <item> [qty]`, paid with the channel's loyalty points. Items: Poké Ball 100, Great Ball 300, Ultra Ball 600, Master Ball 15000, Rare Candy 250 (`!pokecandy <pokemon>` gives +1 level), Lure 800 (`!pokelure` spawns a Pokémon now). New trainers get 5 free Poké Balls.
+- **Collection:** `!pokebag`, `!pokedex [@user]` (x/151, shinies, strongest Pokémon), `!poketop`, `!pokehelp`. Pokédex and bag are tied to the viewer's Twitch account, so they carry across every KitsuFlowBOT channel.
+- **Raids:** mods use `!pokeraidstart`, or the dashboard button, for a channel raid (1500 HP). **Global Raids** (6000 shared HP) run at once in every live channel that has the game and *Join Global Raids* on. The operator starts them from the dashboard or with `!pokeraidstart global`, or automatically with `POKEMON_GLOBAL_RAID_HOURS`. `!pokeraid` attacks every 15s; damage scales with your strongest Pokémon's level and rarity, with 10% crits. If the boss falls within 10 minutes, everyone gets points (150 local / 300 global), the top damage dealer catches the boss, and everyone else gets a 35–50% catch chance.
+- Mods can force a spawn with `!pokespawn`. Spawns and raids are kept in memory, so a restart clears any active ones. Catches, bags and the Pokédex are saved in SQLite.
+
 ## Streamer engagement modules
 
 The dashboard now includes per-channel:
