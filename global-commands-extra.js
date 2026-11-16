@@ -25,6 +25,31 @@ export const EXTRA_COMMANDS={
  duel:{level:'everyone',perUser:true,defaultOff:true,description:'Challenge a viewer: !duel @user 100, they reply !accept or !deny'},
  accept:{level:'everyone',perUser:true,defaultOff:true,hidden:true,description:'Accept a pending duel'},
  deny:{level:'everyone',perUser:true,defaultOff:true,hidden:true,description:'Decline a pending duel'},
+ // Interaction commands: !name @user (or no target for a self/chat version)
+ pat:{level:'everyone',perUser:true,description:'Headpat someone: !pat @user'},
+ boop:{level:'everyone',perUser:true,description:'Boop someone on the nose: !boop @user'},
+ bonk:{level:'everyone',perUser:true,description:'Bonk someone: !bonk @user'},
+ slap:{level:'everyone',perUser:true,description:'Slap someone with a random object: !slap @user'},
+ highfive:{level:'everyone',perUser:true,description:'High five someone: !highfive @user'},
+ cuddle:{level:'everyone',perUser:true,description:'Cuddle someone: !cuddle @user'},
+ poke:{level:'everyone',perUser:true,description:'Poke someone: !poke @user'},
+ wave:{level:'everyone',perUser:true,description:'Wave at someone or chat: !wave @user'},
+ cookie:{level:'everyone',perUser:true,description:'Give someone a cookie (counted): !cookie @user'},
+ fight:{level:'everyone',perUser:true,description:'Fight someone, random winner (no points): !fight @user'},
+ // Rating / random fun
+ ship:{level:'everyone',perUser:true,description:'Ship two people: !ship @a @b'},
+ rate:{level:'everyone',perUser:true,description:'Rate anything out of 10: !rate pineapple pizza'},
+ vibecheck:{level:'everyone',perUser:true,description:'Vibe check yourself or someone'},
+ iq:{level:'everyone',perUser:true,description:'Totally scientific IQ test'},
+ howcute:{level:'everyone',perUser:true,description:'How cute is someone? !howcute @user'},
+ rizz:{level:'everyone',perUser:true,description:'Check your rizz level'},
+ choose:{level:'everyone',perUser:true,description:'Let the bot choose: !choose pizza | burger | sushi'},
+ fortune:{level:'everyone',perUser:true,description:'Get a fortune cookie message'},
+ joke:{level:'everyone',perUser:true,description:'Tell a random clean joke'},
+ compliment:{level:'everyone',perUser:true,description:'Compliment someone: !compliment @user'},
+ wyr:{level:'everyone',perUser:true,description:'Random "would you rather" question'},
+ hydrate:{level:'everyone',description:'Remind the streamer to drink water'},
+ hypetrain:{level:'everyone',perUser:true,description:'Hop on the chat hype train'},
  permit:{level:'moderator',description:'Allow a viewer to post one link within 60 seconds: !permit @user'},
  randomviewer:{level:'moderator',description:'Pick a random recently active chatter'}
 };
@@ -32,6 +57,12 @@ export const EXTRA_COMMANDS={
 const rand=n=>crypto.randomInt(n);
 const pick=list=>list[rand(list.length)];
 const EIGHTBALL=['It is certain.','Without a doubt.','Yes, definitely.','You may rely on it.','Most likely.','Outlook good.','Signs point to yes.','Reply hazy, try again.','Ask again later.','Cannot predict now.','Concentrate and ask again.','Don\'t count on it.','My reply is no.','My sources say no.','Outlook not so good.','Very doubtful.'];
+const SLAP_ITEMS=['a large trout 🐟','a rubber chicken 🐔','a wet noodle 🍜','a pillow ☁️','a fluffy tail 🦊','a baguette 🥖','a keyboard ⌨️','a VR controller 🎮'];
+const FORTUNES=['A surprise clip is in your future.','Your next game will be a win.','Someone in chat is thinking of you right now.','Today is a good day to hydrate.','You will find a rare drop soon.','Good things come to those who lurk.','A new friend will join your party.','Your patience will be rewarded with loot.','The RNG gods smile upon you today.','Take a break, stretch, then conquer.'];
+const JOKES=['Why did the gamer bring a ladder? To reach the next level.','I would tell you a UDP joke, but you might not get it.','Why do programmers prefer dark mode? Because light attracts bugs.','What do you call a fox that streams? A Twitch-y tail.','Why was the computer cold? It left its Windows open.','How does a VRChat avatar say goodbye? "See you in another world!"','Why did the controller go to therapy? Too many issues with its buttons.','What\'s a skeleton\'s least favourite room? The living room.','Why did the scarecrow win an award? He was outstanding in his field.','I told my PC I needed a break, and it said "No problem, I\'ll go to sleep."'];
+const COMPLIMENTS=['you light up this chat ✨','your vibes are immaculate','you have excellent taste in streams','you make the community better just by being here','your aim is probably cracked','you are a certified legend','you deserve a cookie and a nap','your energy is contagious'];
+const WYR=['Would you rather only play one game forever or never replay a game?','Would you rather have infinite lag or 1 FPS?','Would you rather be able to fly or be invisible?','Would you rather fight 100 duck-sized horses or 1 horse-sized duck?','Would you rather lose all your saves or your favourite headset?','Would you rather always speak in rhymes or always sing instead of talk?','Would you rather live in VRChat or Minecraft?','Would you rather have a pet dragon or a pet fox?'];
+const VIBES=['immaculate ✨','chaotic but fun 🌀','cosy and warm ☕','suspiciously sleepy 😴','pure gamer energy 🎮','certified wholesome 💖','unhinged (affectionate) 🤪','main character energy 🌟'];
 const SLOTS=['🍒','🍋','🍇','🔔','⭐','💎'];
 
 export function createExtraCommands({db,api,say,resolveViewer,recentChatters,permits,log}){
@@ -46,7 +77,20 @@ export function createExtraCommands({db,api,say,resolveViewer,recentChatters,per
   const pct=/^(\d{1,3})%$/.exec(s);if(pct){const p=Number(pct[1]);return p>=1&&p<=100?Math.floor(have*p/100):null}
   const n=Number(s);return Number.isSafeInteger(n)&&n>0?n:null;
  };
- const duels=new Map(); // channel:targetId -> {from,fromLogin,amount,expires}
+ const duels=new Map();
+ db.exec('CREATE TABLE IF NOT EXISTS fun_cookies(channel TEXT NOT NULL,user_id TEXT NOT NULL,login TEXT NOT NULL,cookies INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(channel,user_id))');
+ const hype=new Map(); // channel -> {riders:Set,expires}
+ // Stable pseudo-random % for a pair/name, so !ship a b gives the same answer each time.
+ const seeded=(...keys)=>crypto.createHash('sha256').update(keys.map(k=>String(k).toLowerCase()).sort().join('|')).digest().readUInt32BE(0);
+ const ACTIONS={
+  pat:[t=>'gives '+t+' gentle headpats 🫳',()=>'pats everyone in chat 🫳'],
+  boop:[t=>'boops '+t+' on the nose! 👉👃',()=>'boops the air... it boops back 👉'],
+  bonk:[t=>'bonks '+t+'! 🔨 Go to nap time.',()=>'bonks themselves. Ouch 🔨'],
+  highfive:[t=>'high fives '+t+'! ✋',()=>'high fives chat! ✋'],
+  cuddle:[t=>'cuddles up with '+t+' 🫂',()=>'wraps chat in a big cuddle 🫂'],
+  poke:[t=>'pokes '+t+' 👉',()=>'pokes the streamer 👉'],
+  wave:[t=>'waves at '+t+' 👋',()=>'waves at everyone in chat 👋']
+ }; // channel:targetId -> {from,fromLogin,amount,expires}
 
  async function bet(ch,e,raw,name){
   const who=e.chatter_user_login,have=balance(ch.id,e.chatter_user_id),amount=parseBet(raw,have);
@@ -137,6 +181,57 @@ export function createExtraCommands({db,api,say,resolveViewer,recentChatters,per
      adjust.run(ch.id,w.id,w.login,d.amount*2);return w;
     })();
     return say(ch.id,winner?'⚔️ '+winner.login+' won the duel and takes '+d.amount+' points!':'Duel cancelled: someone no longer has enough points.');
+   }
+   case 'pat':case 'boop':case 'bonk':case 'highfive':case 'cuddle':case 'poke':case 'wave':{
+    const [withTarget,alone]=ACTIONS[name];
+    return say(ch.id,who+' '+(target&&target.toLowerCase()!==who.toLowerCase()?withTarget(target):alone()));
+   }
+   case 'slap':return say(ch.id,target?who+' slaps '+target+' around a bit with '+pick(SLAP_ITEMS)+'!':who+' slaps the air with '+pick(SLAP_ITEMS)+'. Nobody is impressed.');
+   case 'cookie':{
+    if(!target)return say(ch.id,'@'+who+' usage: !cookie @user');
+    const user=await resolveViewer(target);if(!user)return say(ch.id,'Viewer not found.');
+    if(user.id===e.chatter_user_id)return say(ch.id,'@'+who+' no eating your own cookies! 🍪');
+    db.prepare('INSERT INTO fun_cookies(channel,user_id,login,cookies) VALUES(?,?,?,1) ON CONFLICT(channel,user_id) DO UPDATE SET login=excluded.login,cookies=fun_cookies.cookies+1').run(ch.id,user.id,user.login);
+    const n=db.prepare('SELECT cookies FROM fun_cookies WHERE channel=? AND user_id=?').get(ch.id,user.id).cookies;
+    return say(ch.id,who+' gave '+user.login+' a cookie 🍪 They now have '+n+' cookie'+(n===1?'':'s')+'!');
+   }
+   case 'fight':{
+    if(!target||target.toLowerCase()===who.toLowerCase())return say(ch.id,'@'+who+' usage: !fight @user');
+    const moves=['a flying kick','a pillow barrage','a critical hit','a sneaky backstab','the ultimate tail whip','a perfectly timed parry'];
+    const [winner,loser]=rand(2)?[who,target]:[target,who];
+    return say(ch.id,'🥊 '+winner+' defeats '+loser+' with '+pick(moves)+'!');
+   }
+   case 'ship':{
+    const a=(parts[1]||'').replace(/^@/,''),b=(parts[2]||'').replace(/^@/,'')||who;
+    if(!a||a.toLowerCase()===b.toLowerCase())return say(ch.id,'@'+who+' usage: !ship @user1 @user2');
+    const pct=seeded('ship',a,b)%101,name=a.slice(0,Math.ceil(a.length/2))+b.slice(Math.floor(b.length/2));
+    return say(ch.id,'💘 '+a+' + '+b+' = '+name+' — '+pct+'% compatible'+(pct>=90?' 💍':pct>=60?' 💕':pct>=30?' 🙂':' 💔'));
+   }
+   case 'rate':{
+    const thing=parts.slice(1).join(' ').trim().slice(0,80);if(!thing)return say(ch.id,'@'+who+' usage: !rate something');
+    return say(ch.id,'@'+who+' I rate '+thing+' a '+(seeded('rate',thing)%11)+'/10');
+   }
+   case 'vibecheck':return say(ch.id,'✅ Vibe check on '+(target||who)+': '+pick(VIBES));
+   case 'iq':return say(ch.id,'🧠 '+(target||who)+' has an IQ of '+(seeded('iq',target||who,new Date().toDateString())%200+1)+' today.');
+   case 'howcute':return say(ch.id,'🥰 '+(target||who)+' is '+(seeded('cute',target||who,new Date().toDateString())%101)+'% cute today.');
+   case 'rizz':return say(ch.id,'😎 '+(target||who)+' has '+(seeded('rizz',target||who,new Date().toDateString())%101)+'% rizz today.');
+   case 'choose':{
+    const options=parts.slice(1).join(' ').split(/\s*(?:\||,|\bor\b)\s*/i).map(x=>x.trim()).filter(Boolean).slice(0,20);
+    if(options.length<2)return say(ch.id,'@'+who+' usage: !choose pizza | burger | sushi');
+    return say(ch.id,'🤔 @'+who+' I choose: '+pick(options).slice(0,80));
+   }
+   case 'fortune':return say(ch.id,'🥠 @'+who+' '+pick(FORTUNES));
+   case 'joke':return say(ch.id,'😂 '+pick(JOKES));
+   case 'compliment':return say(ch.id,'💖 '+(target||who)+', '+pick(COMPLIMENTS));
+   case 'wyr':return say(ch.id,'🤷 '+pick(WYR));
+   case 'hydrate':return say(ch.id,'💧 '+who+' reminds '+ch.login+' to drink some water! Stay hydrated, chat 💦');
+   case 'hypetrain':{
+    let h=hype.get(ch.id);const now=Date.now();
+    if(!h||h.expires<now){h={riders:new Set(),expires:0};hype.set(ch.id,h)}
+    if(h.riders.has(e.chatter_user_id))return;
+    h.riders.add(e.chatter_user_id);h.expires=now+120000;
+    const n=h.riders.size;
+    return say(ch.id,n===1?'🚂 '+who+' started a chat hype train! Type !hypetrain to hop on (2 min)':'🚂 '+who+' hopped on! The hype train has '+n+' riders'+(n%5===0?' 🔥🔥🔥':'')+'!');
    }
    case 'permit':{
     if(!target)return say(ch.id,'Usage: !permit @user');
