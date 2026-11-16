@@ -105,7 +105,8 @@ const allowed=(level,e)=>level==='everyone'||e.badges?.some(b=>b.set_id==='broad
 const sharedCommandSeen=new Map();
 const linkPermits=new Map();
 let extraCommands=null;
-const runExtra=(name,ctx)=>(extraCommands||=createExtraCommands({db,api,say,resolveViewer,recentChatters,permits:linkPermits,log}))(name,ctx);
+const extras=()=>extraCommands||=createExtraCommands({db,api,say,resolveViewer,recentChatters,permits:linkPermits,log});
+const runExtra=(name,ctx)=>extras()(name,ctx);
 async function message(e){
  // EventSub broadcaster_user_id is the receiving chat; source_broadcaster_user_id
  // identifies the originating chat when Twitch mirrors messages in Shared Chat.
@@ -154,7 +155,7 @@ if(ch.links&&!isMod&&!permitted&&hasLink){try{await moderate(ch.id,e.chatter_use
 try{
 if(await engagement.onMessage(ch,e,value,parts,isMod))return;
 if(await creator.onMessage(ch,e,value,parts,isMod))return;
-if(!cmd?.startsWith('!'))return;
+if(!cmd?.startsWith('!')){if(isGlobalEnabled(ch.id,'trivia'))await extras().onChat(ch,e,value);return}
 const globalName=cmd==='!command'?'commands':cmd.slice(1);
 if(GLOBAL_COMMANDS[globalName]&&isGlobalEnabled(ch.id,globalName)){
  const isOwner=e.chatter_user_id===ch.id;

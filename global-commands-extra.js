@@ -50,6 +50,11 @@ export const EXTRA_COMMANDS={
  wyr:{level:'everyone',perUser:true,description:'Random "would you rather" question'},
  hydrate:{level:'everyone',description:'Remind the streamer to drink water'},
  hypetrain:{level:'everyone',perUser:true,description:'Hop on the chat hype train'},
+ // Leaderboards and games
+ topwatch:{level:'everyone',description:'Top 5 viewers by estimated watch time'},
+ topcookies:{level:'everyone',description:'Top 5 cookie collectors'},
+ trivia:{level:'everyone',description:'Start a trivia question; first correct answer in chat wins points'},
+ heist:{level:'everyone',perUser:true,defaultOff:true,description:'Start or join a heist: !heist 100 (60s to join, survivors double their bet)'},
  permit:{level:'moderator',description:'Allow a viewer to post one link within 60 seconds: !permit @user'},
  randomviewer:{level:'moderator',description:'Pick a random recently active chatter'}
 };
@@ -91,6 +96,50 @@ const UNLURK=[
  '{user} is back in chat. We missed you! 🦊',
  '{user} re-entered the chat. Lurk complete! ✅'
 ];
+// [question, accepted answers]. Answers are matched case-insensitively, ignoring punctuation.
+const TRIVIA=[
+ ['How many sides does a hexagon have?',['6','six']],
+ ['What is the largest planet in our solar system?',['jupiter']],
+ ['What colour do you get by mixing blue and yellow?',['green']],
+ ['How many legs does a spider have?',['8','eight']],
+ ['What is the chemical symbol for gold?',['au']],
+ ['What is the capital of Japan?',['tokyo']],
+ ['Which planet is known as the Red Planet?',['mars']],
+ ['How many minutes are in an hour?',['60','sixty']],
+ ['What is the freezing point of water in Celsius?',['0','zero']],
+ ['What is the fastest land animal?',['cheetah']],
+ ['How many continents are there?',['7','seven']],
+ ['What gas do plants absorb from the air?',['carbon dioxide','co2']],
+ ['What is the largest ocean on Earth?',['pacific','pacific ocean']],
+ ['In Minecraft, which mob explodes when it gets close to you?',['creeper','a creeper']],
+ ['What company makes the Quest VR headsets?',['meta','oculus']],
+ ['What is the name of Mario\'s brother?',['luigi']],
+ ['In Pac-Man, what do you eat to make the ghosts turn blue?',['power pellet','power pellets','pellet']],
+ ['What colour is Sonic the Hedgehog?',['blue']],
+ ['Which game features the Battle Bus?',['fortnite']],
+ ['What is the main currency in Fortnite called?',['vbucks','v bucks','v-bucks']],
+ ['How many players are on a football (soccer) team on the pitch?',['11','eleven']],
+ ['What do bees make?',['honey']],
+ ['What is the hardest natural substance?',['diamond','diamonds']],
+ ['How many hours are in a day?',['24','twenty four']],
+ ['What is the boiling point of water in Celsius?',['100','one hundred']],
+ ['What is the tallest animal in the world?',['giraffe']],
+ ['Which animal is known as the king of the jungle?',['lion']],
+ ['What is 7 x 8?',['56','fifty six']],
+ ['What is 12 x 12?',['144']],
+ ['What is the square root of 81?',['9','nine']],
+ ['Which ocean lies between Europe and North America?',['atlantic','atlantic ocean']],
+ ['What is the capital of France?',['paris']],
+ ['What is the capital of Australia?',['canberra']],
+ ['How many strings does a standard guitar have?',['6','six']],
+ ['What is the closest star to Earth?',['sun','the sun']],
+ ['What fruit is famous for keeping the doctor away?',['apple','an apple']],
+ ['In The Legend of Zelda, what is the name of the hero you play?',['link']],
+ ['In Tetris, how many blocks make up each piece?',['4','four']],
+ ['What does "GG" stand for in gaming?',['good game']],
+ ['What does "AFK" stand for?',['away from keyboard']]
+];
+const norm=t=>String(t).toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
 const fill=(line,who,channel)=>line.replaceAll('{user}',who).replaceAll('{channel}',channel);
 const SLOTS=['🍒','🍋','🍇','🔔','⭐','💎'];
 
@@ -109,6 +158,11 @@ export function createExtraCommands({db,api,say,resolveViewer,recentChatters,per
  const duels=new Map();
  db.exec('CREATE TABLE IF NOT EXISTS fun_cookies(channel TEXT NOT NULL,user_id TEXT NOT NULL,login TEXT NOT NULL,cookies INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(channel,user_id))');
  const hype=new Map();
+ const trivias=new Map(); // channel -> {q,answers,expires,timer}
+ const triviaCooldown=new Map();
+ const heists=new Map(); // channel -> {crew:Map(user->{login,amount}),timer}
+ const heistCooldown=new Map();
+ const TRIVIA_REWARD=50,TRIVIA_SECONDS=30,HEIST_JOIN=60000,HEIST_COOLDOWN=300000;
  const lurkers=new Map(); // channel:user -> lurk start (in memory; resets on restart) // channel -> {riders:Set,expires}
  // Stable pseudo-random % for a pair/name, so !ship a b gives the same answer each time.
  const seeded=(...keys)=>crypto.createHash('sha256').update(keys.map(k=>String(k).toLowerCase()).sort().join('|')).digest().readUInt32BE(0);
@@ -130,7 +184,29 @@ export function createExtraCommands({db,api,say,resolveViewer,recentChatters,per
  }
  const pay=(ch,e,amount)=>adjust.run(ch.id,e.chatter_user_id,e.chatter_user_login,amount);
 
- return async function run(name,{ch,e,parts}){
+ async function finishHeist(ch,h){
+  heists.delete(ch.id);heistCooldown.set(ch.id,Date.now()+HEIST_COOLDOWN);
+  const crew=[...h.crew.entries()],n=crew.length;
+  // Bigger crews are a bit safer, capped so it stays a gamble.
+  const survive=Math.min(0.65,0.40+0.05*(n-1));
+  const winners=[],lost=[];
+  db.transaction(()=>{for(const [id,m] of crew){if(crypto.randomInt(10000)<survive*10000){adjust.run(ch.id,id,m.login,m.amount*2);winners.push(m.login+' (+'+m.amount+')')}else lost.push(m.login)}})();
+  const story=winners.length===n?'🎉 Flawless heist! The whole crew escaped with the loot!':winners.length?'🚓 The alarms went off, but some of the crew got away!':'🚨 The cops caught everyone. The loot is gone!';
+  let msg=story+(winners.length?' Escaped: '+winners.join(', '):'');
+  if(msg.length>470)msg=msg.slice(0,467)+'...';
+  await say(ch.id,msg);
+ }
+ // Called for every non-command chat message (trivia answers).
+ async function onChat(ch,e,text){
+  const round=trivias.get(ch.id);if(!round||!text||text.startsWith('!'))return false;
+  if(!round.answers.includes(norm(text)))return false;
+  trivias.delete(ch.id);clearTimeout(round.timer);triviaCooldown.set(ch.id,Date.now()+60000);
+  const who=displayName(e);
+  adjust.run(ch.id,e.chatter_user_id,e.chatter_user_login,TRIVIA_REWARD);
+  await say(ch.id,'✅ '+who+' got it! The answer was "'+round.answer+'" — +'+TRIVIA_REWARD+' points!');
+  return true;
+ }
+ const run=async function run(name,{ch,e,parts}){
   const who=displayName(e),target=(parts[1]||'').replace(/^@/,'');
   const stream=async()=>(await api(ch.id,'streams?user_id='+encodeURIComponent(ch.id))).data?.[0]||null;
   const channelInfo=async()=>(await api(ch.id,'channels?broadcaster_id='+encodeURIComponent(ch.id))).data?.[0]||{};
@@ -272,6 +348,40 @@ export function createExtraCommands({db,api,say,resolveViewer,recentChatters,per
     const n=h.riders.size;
     return say(ch.id,n===1?'🚂 '+who+' started a chat hype train! Type !hypetrain to hop on (2 min)':'🚂 '+who+' hopped on! The hype train has '+n+' riders'+(n%5===0?' 🔥🔥🔥':'')+'!');
    }
+   case 'topwatch':{
+    const rows=db.prepare('SELECT username,watch_minutes FROM loyalty WHERE channel=? AND watch_minutes>0 ORDER BY watch_minutes DESC LIMIT 5').all(ch.id);
+    const fmt=m=>m>=60?Math.floor(m/60)+'h '+(m%60)+'m':m+'m';
+    return say(ch.id,rows.length?'⏱️ Top watch time: '+rows.map((r,i)=>(i+1)+'. '+r.username+' ('+fmt(r.watch_minutes)+')').join(' · '):'No watch time tracked yet. Turn on loyalty points to start tracking.');
+   }
+   case 'topcookies':{
+    const rows=db.prepare('SELECT login,cookies FROM fun_cookies WHERE channel=? ORDER BY cookies DESC LIMIT 5').all(ch.id);
+    return say(ch.id,rows.length?'🍪 Top cookie collectors: '+rows.map((r,i)=>(i+1)+'. '+r.login+' ('+r.cookies+')').join(' · '):'No cookies given yet. Try !cookie @user');
+   }
+   case 'trivia':{
+    const now=Date.now(),open=trivias.get(ch.id);
+    if(open)return say(ch.id,'❓ Trivia in progress: '+open.q);
+    if((triviaCooldown.get(ch.id)||0)>now)return say(ch.id,'@'+who+' next trivia in '+Math.ceil((triviaCooldown.get(ch.id)-now)/1000)+'s.');
+    const [q,answers]=pick(TRIVIA);
+    const round={q,answer:answers[0],answers:answers.map(norm)};
+    round.timer=setTimeout(()=>{if(trivias.get(ch.id)!==round)return;trivias.delete(ch.id);triviaCooldown.set(ch.id,Date.now()+60000);void say(ch.id,'⌛ Time\'s up! The answer was: '+answers[0]).catch(()=>{})},TRIVIA_SECONDS*1000);
+    round.timer.unref?.();
+    trivias.set(ch.id,round);
+    return say(ch.id,'❓ TRIVIA ('+TRIVIA_SECONDS+'s, '+TRIVIA_REWARD+' points): '+q+' — type your answer in chat!');
+   }
+   case 'heist':{
+    const now=Date.now();let h=heists.get(ch.id);
+    if(!h&&(heistCooldown.get(ch.id)||0)>now)return say(ch.id,'@'+who+' the crew is laying low. Next heist in '+Math.ceil((heistCooldown.get(ch.id)-now)/60000)+' min.');
+    if(h?.crew.has(e.chatter_user_id))return say(ch.id,'@'+who+' you\'re already in the crew!');
+    const amount=await bet(ch,e,parts[1],'heist');if(amount===null)return;
+    if(!h){
+     h={crew:new Map()};heists.set(ch.id,h);
+     h.timer=setTimeout(()=>{void finishHeist(ch,h).catch(err=>log(ch.id,'heist-error',err.message))},HEIST_JOIN);h.timer.unref?.();
+     h.crew.set(e.chatter_user_id,{login:who,amount});
+     return say(ch.id,'💰 '+who+' is planning a heist on the KitsuFlow Bank! Type !heist <points> in the next 60 seconds to join the crew.');
+    }
+    h.crew.set(e.chatter_user_id,{login:who,amount});
+    return say(ch.id,'💰 '+who+' joined the heist with '+amount+' points. Crew size: '+h.crew.size);
+   }
    case 'permit':{
     if(!target)return say(ch.id,'Usage: !permit @user');
     const user=await resolveViewer(target);if(!user)return say(ch.id,'Viewer not found.');
@@ -284,4 +394,5 @@ export function createExtraCommands({db,api,say,resolveViewer,recentChatters,per
    }
   }
  };
+ return Object.assign(run,{onChat});
 }

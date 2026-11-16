@@ -45,6 +45,7 @@ Toggle each one per channel under **Custom Commands → Global bot commands**.
 - **Viewer interactions:** `!pat`, `!boop`, `!bonk`, `!slap`, `!highfive`, `!cuddle`, `!poke`, `!wave`, `!fight` (no points), `!cookie @user` (cookie count saved per channel)
 - **Random fun:** `!ship @a @b`, `!rate thing`, `!vibecheck`, `!iq`, `!howcute`, `!rizz`, `!choose a | b | c`, `!fortune`, `!joke`, `!compliment @user`, `!wyr`, `!hydrate`, `!hypetrain` (chat joins within 2 minutes). `!ship`/`!rate` give the same answer for the same input; `!iq`/`!howcute`/`!rizz` change daily
 - **Points:** `!givepoints @user 100`. Points games are **off by default**: `!gamble 100|all|50%` (1–59 lose, 60–98 double, 99–100 triple), `!roulette`, `!slots`, `!duel @user 100` (target replies `!accept` / `!deny` within 2 minutes)
+- **Games & leaderboards:** `!trivia` (anyone can start one; first correct answer in chat within 30s wins 50 points, 60s cooldown between rounds), `!heist 100|all|50%` (**off by default**; 60s to join, each crew member escapes independently with 40–65% odds that rise with crew size, escapees double their bet, 5 min cooldown), `!topwatch`, `!topcookies`, `!watchtime`
 - **Moderator:** `!so`, `!permit @user` (one link within 60s past the URL filter), `!randomviewer`
 - **Supermod:** `!settitle`, `!setgame`, `!addpoints`, `!setpoints`
 
