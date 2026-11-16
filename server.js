@@ -17,6 +17,7 @@ import {installCreatorGoals} from './creator-goals.js';
 import {installVoice} from './voice.js';
 import {installVoiceCompanion} from './voice-companion.js';
 import {installChatClip} from './chat-clip.js';
+import {EXTRA_COMMANDS,createExtraCommands} from './global-commands-extra.js';
 import {installAccess} from './access.js';
 import {installPlatforms} from './platform-integrations.js';
 import {installRelay} from './chat-relay.js';
@@ -85,12 +86,13 @@ const GLOBAL_COMMANDS={
  addpoints:{level:'supermod',description:'Give loyalty points to a viewer or active chatters'},
  setpoints:{level:'supermod',description:'Set a viewer\'s loyalty points'},
  setgame:{level:'supermod',description:'Change stream category/game'},
- settitle:{level:'supermod',description:'Change stream title'}
+ settitle:{level:'supermod',description:'Change stream title'},
+ ...EXTRA_COMMANDS
 };
 db.exec(`CREATE TABLE IF NOT EXISTS global_command_settings(channel TEXT NOT NULL,name TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(channel,name));
 CREATE TABLE IF NOT EXISTS channel_supermods(channel TEXT NOT NULL,user_id TEXT NOT NULL,login TEXT NOT NULL,PRIMARY KEY(channel,user_id));`);
-const isGlobalEnabled=(channel,name)=>{const row=db.prepare('SELECT enabled FROM global_command_settings WHERE channel=? AND name=?').get(channel,name);return row?row.enabled===1:GLOBAL_COMMANDS[name]?.level!=='supermod'};
-const globalListing=channel=>Object.entries(GLOBAL_COMMANDS).map(([name,item])=>({name,...item,enabled:isGlobalEnabled(channel,name)}));
+const isGlobalEnabled=(channel,name)=>{if(name==='accept'||name==='deny')name='duel';const row=db.prepare('SELECT enabled FROM global_command_settings WHERE channel=? AND name=?').get(channel,name);return row?row.enabled===1:GLOBAL_COMMANDS[name]?.level!=='supermod'&&!GLOBAL_COMMANDS[name]?.defaultOff};
+const globalListing=channel=>Object.entries(GLOBAL_COMMANDS).filter(([,item])=>!item.hidden).map(([name,item])=>({name,...item,enabled:isGlobalEnabled(channel,name)}));
 const duration=ms=>{let seconds=Math.max(0,Math.floor(ms/1000));if(!seconds)return '0 seconds';const out=[];for(const [n,label] of [[31536000,'year'],[86400,'day'],[3600,'hour'],[60,'minute'],[1,'second']]){const value=Math.floor(seconds/n);if(value){out.push(value+' '+label+(value===1?'':'s'));seconds-=value*n}if(out.length>=2)break}return out.join(' ')};
 const resolveViewer=async(login,fallback)=>{if(!login)return fallback;const account=await api(botId(),'users?login='+encodeURIComponent(login.replace(/^@/,'')));return account.data?.[0]||null};
 const numberArg=value=>{const n=Number(value);return Number.isSafeInteger(n)&&n>=0&&n<=1000000?n:null};
@@ -101,6 +103,9 @@ const cooldowns=new Map();
 const recentChatters=new Map();
 const allowed=(level,e)=>level==='everyone'||e.badges?.some(b=>b.set_id==='broadcaster'||b.set_id==='moderator')||(level==='subscriber'&&e.badges?.some(b=>b.set_id==='subscriber'));
 const sharedCommandSeen=new Map();
+const linkPermits=new Map();
+let extraCommands=null;
+const runExtra=(name,ctx)=>(extraCommands||=createExtraCommands({db,api,say,resolveViewer,recentChatters,permits:linkPermits,log}))(name,ctx);
 async function message(e){
  // EventSub broadcaster_user_id is the receiving chat; source_broadcaster_user_id
  // identifies the originating chat when Twitch mirrors messages in Shared Chat.
@@ -142,7 +147,10 @@ if(bad&&scamSettings(ch.id).enabled===1&&!e.badges?.some(b=>b.set_id==='broadcas
 }
 void relay.relay(ch.id,'twitch',e.chatter_user_login,rawText,{isBot:false,fragments:e.message?.fragments||[]}).catch(err=>log(ch.id,'relay-error',err.message));
 const value=(e.message?.text||'').trim(),parts=value.split(/\s+/),cmd=parts[0]?.toLowerCase(),isMod=e.badges?.some(b=>b.set_id==='moderator'||b.set_id==='broadcaster');
-if(ch.links&&!isMod&&/https?:\/\/|(?:[a-z0-9-]+\.)+(?:com|net|org|xyz|click|shop|ru|co\.uk)\b/i.test(value)){try{await moderate(ch.id,e.chatter_user_id,60,'Unapproved URL');log(ch.id,'timeout',e.chatter_user_login+' URL')}catch(err){log(ch.id,'error',err.message)}return}
+const permitKey=ch.id+':'+e.chatter_user_id,permitted=(linkPermits.get(permitKey)||0)>Date.now();
+const hasLink=/https?:\/\/|(?:[a-z0-9-]+\.)+(?:com|net|org|xyz|click|shop|ru|co\.uk)\b/i.test(value);
+if(permitted&&hasLink)linkPermits.delete(permitKey);
+if(ch.links&&!isMod&&!permitted&&hasLink){try{await moderate(ch.id,e.chatter_user_id,60,'Unapproved URL');log(ch.id,'timeout',e.chatter_user_login+' URL')}catch(err){log(ch.id,'error',err.message)}return}
 try{
 if(await engagement.onMessage(ch,e,value,parts,isMod))return;
 if(await creator.onMessage(ch,e,value,parts,isMod))return;
@@ -153,9 +161,11 @@ if(GLOBAL_COMMANDS[globalName]&&isGlobalEnabled(ch.id,globalName)){
  const supermod=isOwner||Boolean(db.prepare('SELECT 1 FROM channel_supermods WHERE channel=? AND user_id=?').get(ch.id,e.chatter_user_id));
  const required=GLOBAL_COMMANDS[globalName].level;
  if(required==='moderator'&&!isMod||required==='supermod'&&!supermod)return;
- const key=ch.id+':global:'+globalName,now=Date.now();
+ const perUser=GLOBAL_COMMANDS[globalName].perUser;
+ const key=ch.id+':global:'+globalName+(perUser?':'+e.chatter_user_id:''),now=Date.now();
  if(now<(cooldowns.get(key)||0))return;
- cooldowns.set(key,now+10000);
+ cooldowns.set(key,now+(perUser?5000:10000));
+ if(EXTRA_COMMANDS[globalName]){await runExtra(globalName,{ch,e,parts});return}
  const requestedLogin=(parts[1]||'').replace(/^@/,'');
  if(globalName==='commands'){await say(ch.id,'Commands for '+ch.login+': '+BASE+'/commands/'+encodeURIComponent(ch.login));return}
  if(globalName==='accountage'||globalName==='followage'||globalName==='watchtime'){

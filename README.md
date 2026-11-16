@@ -36,6 +36,18 @@ Node.js 22+, Twitch developer application, an HTTPS reverse proxy in production.
 
 **Important scaling note:** This early version uses a single bot-account EventSub WebSocket and reconnects it when channel membership changes. Twitch has per-user WebSocket and per-connection subscription limits, so this must be migrated to App Access Token + EventSub webhooks or conduits, including the required broadcaster authorisations, before serving large numbers of channels. Twitch recommends cloud chatbot architecture for this scenario. Production rollout also requires better reconnect/health monitoring, channel authorisation verification and security testing.
 
+## Global commands (StreamElements-style)
+
+Toggle each one per channel under **Custom Commands → Global bot commands**.
+
+- **Info:** `!game`, `!title`, `!viewers`, `!followers`, `!subcount`, `!uptime`, `!followage`, `!accountage`, `!watchtime`, `!commands`
+- **Fun:** `!lurk`, `!unlurk`, `!hug @user`, `!love @user`, `!8ball question`, `!roll` / `!roll 20` / `!roll 2d6`, `!coinflip`, `!rps rock`
+- **Points:** `!givepoints @user 100`. Points games are **off by default**: `!gamble 100|all|50%` (1–59 lose, 60–98 double, 99–100 triple), `!roulette`, `!slots`, `!duel @user 100` (target replies `!accept` / `!deny` within 2 minutes)
+- **Moderator:** `!so`, `!permit @user` (one link within 60s past the URL filter), `!randomviewer`
+- **Supermod:** `!settitle`, `!setgame`, `!addpoints`, `!setpoints`
+
+Fun and points commands use a 5-second per-viewer cooldown; info commands use a 10-second per-channel cooldown. Points bets are debited atomically, so spamming cannot spend points twice.
+
 ## Streamer engagement modules
 
 The dashboard now includes per-channel:
