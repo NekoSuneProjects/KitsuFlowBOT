@@ -16,6 +16,7 @@ import {installStreamAlerts} from './stream-alerts.js';
 import {installCreatorGoals} from './creator-goals.js';
 import {installVoice} from './voice.js';
 import {installVoiceCompanion} from './voice-companion.js';
+import {installChatClip} from './chat-clip.js';
 import {installAccess} from './access.js';
 import {installPlatforms} from './platform-integrations.js';
 import {installRelay} from './chat-relay.js';
@@ -38,10 +39,16 @@ const enc=s=>{const iv=crypto.randomBytes(12),c=crypto.createCipheriv('aes-256-g
 const dec=s=>{const b=Buffer.from(s,'base64'),d=crypto.createDecipheriv('aes-256-gcm',KEY,b.subarray(0,12));d.setAuthTag(b.subarray(12,28));return Buffer.concat([d.update(b.subarray(28)),d.final()]).toString()};
 const log=(id,event,detail)=>db.prepare('INSERT INTO logs(channel,event,detail) VALUES(?,?,?)').run(id,event,String(detail).slice(0,500));
 const getAccount=id=>db.prepare('SELECT * FROM accounts WHERE id=?').get(id);
+// Share one in-flight refresh per account: parallel refreshes of the same refresh token can
+// invalidate it, which used to leave the bot unable to reconnect until re-authorised.
+const refreshing=new Map();
 async function token(id){let a=getAccount(id);if(!a)throw Error('Account not connected');
 if(a.expires>Date.now()+120000)return dec(a.access);
+if(refreshing.has(id))return refreshing.get(id);
+const job=refreshToken(id,a).finally(()=>refreshing.delete(id));refreshing.set(id,job);return job}
+async function refreshToken(id,a){
 const p=new URLSearchParams({client_id:CID,client_secret:SECRET,grant_type:'refresh_token',refresh_token:dec(a.refresh)});
-const r=await fetch('https://id.twitch.tv/oauth2/token',{method:'POST',body:p});if(!r.ok)throw Error('Twitch refresh failed: '+r.status);
+const r=await fetch('https://id.twitch.tv/oauth2/token',{method:'POST',body:p});if(!r.ok){const detail='Twitch refresh failed: '+r.status;log(id,'token-refresh-error',detail+' '+(await r.text().catch(()=>'')).slice(0,200));throw Error(detail)}
 const t=await r.json();db.prepare('UPDATE accounts SET access=?,refresh=?,expires=? WHERE id=?').run(enc(t.access_token),enc(t.refresh_token||dec(a.refresh)),Date.now()+t.expires_in*1000,id);return t.access_token}
 async function api(id,route,method='GET',body){const t=await token(id);const r=await fetch('https://api.twitch.tv/helix/'+route,{method,headers:{'Client-Id':CID,Authorization:'Bearer '+t,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});const x=await r.text();if(!r.ok)throw Error('Twitch '+r.status+': '+x.slice(0,300));return x?JSON.parse(x):{}}
 const botId=()=>db.prepare("SELECT value FROM config WHERE key='bot_id'").get()?.value;
@@ -208,7 +215,7 @@ if(GLOBAL_COMMANDS[globalName]&&isGlobalEnabled(ch.id,globalName)){
  }
 }
 
-if(cmd==='!clip'){if(!isMod)return;try{const c=await clip(ch.id);await say(ch.id,'Clip requested (up to 60 seconds): https://clips.twitch.tv/'+c.id)}catch(err){log(ch.id,'clip-error',err.message);await say(ch.id,'Clip failed. Ensure the shared bot is connected with clips:edit and the channel is live.')}return}
+if(cmd==='!clip'){await chatClip.onCommand(ch,e);return}
 if((cmd==='!ban'||cmd==='!timeout')&&isMod){const target=parts[1];if(!target)return;const uid=await lookup(target);const seconds=cmd==='!timeout'?Math.max(1,Math.min(1209600,Number(parts[2])||600)):null;await moderate(ch.id,uid,seconds,parts.slice(cmd==='!timeout'?3:2).join(' ')||'Moderator command');log(ch.id,cmd,target);await say(ch.id,target+' '+(seconds?'timed out':'banned'));return}
 if(cmd==='!uptime'){const s=await api(ch.id,'streams?user_id='+ch.id);await say(ch.id,s.data?.[0]?'Live since '+new Date(s.data[0].started_at).toLocaleString():'Stream is offline');return}
 const custom=db.prepare('SELECT * FROM commands WHERE channel=? AND name=?').get(ch.id,cmd.slice(1));if(!custom||engagement.reserved.has(cmd.slice(1))||!allowed(custom.level,e))return;
@@ -216,19 +223,35 @@ const key=ch.id+':'+custom.name,now=Date.now();if(now<(cooldowns.get(key)||0))re
 await say(ch.id,custom.response.replaceAll('{user}',e.chatter_user_name).replaceAll('{channel}',ch.login).replaceAll('{args}',parts.slice(1).join(' ')));
 }catch(err){log(ch.id,'error',err.message)}
 }
+// EventSub keepalive watchdog. Twitch sends session_keepalive messages; if none arrive within
+// keepalive_timeout_seconds the TCP link is dead even though 'close' may never fire (NAT/proxy
+// drops, laptop sleep, Docker network blips). Terminating forces the normal reconnect path.
+function keepaliveWatchdog(ws,label){
+ let limit=30000,timer=null;
+ const arm=()=>{clearTimeout(timer);timer=setTimeout(()=>{console.warn(label+': no EventSub keepalive for '+Math.round(limit/1000)+'s, forcing reconnect');try{ws.terminate()}catch{}},limit);timer.unref?.()};
+ ws.on('open',arm);ws.on('message',arm);ws.on('ping',arm);ws.on('close',()=>clearTimeout(timer));
+ return {setTimeoutSeconds(sec){const n=Number(sec);if(n>0)limit=(n+10)*1000;arm()}};
+}
 const engagementSockets=new Map();
+const engagementFailures=new Map();
 function connectEngagement(channel){
  if(!getAccount(channel))return;
  const previous=engagementSockets.get(channel);if(previous)previous.close();
- const ws=new WebSocket('wss://eventsub.wss.twitch.tv/ws');
+ const ws=new WebSocket('wss://eventsub.wss.twitch.tv/ws',{handshakeTimeout:15000});
  engagementSockets.set(channel,ws);
+ const watchdog=keepaliveWatchdog(ws,'Engagement '+channel);
  ws.on('message',async raw=>{
   try{
    const d=JSON.parse(String(raw)),type=d.metadata?.message_type;
    if(type==='notification'){
     const event=d.payload?.event||{},name=d.metadata.subscription_type;
     streamActivity.emit(channel,'twitch',name,event.user_name||event.from_broadcaster_user_name||event.to_broadcaster_user_name||'',event.message?.text||String(name==='channel.subscription.gift'?(event.total||1):(event.bits||event.viewers||event.tier||'')),d.metadata.message_id);
+   }else if(type==='session_reconnect'){
+    // Simplest safe handling: open a fresh session and resubscribe.
+    connectEngagement(channel);return;
    }else if(type==='session_welcome'){
+    watchdog.setTimeoutSeconds(d.payload.session.keepalive_timeout_seconds);
+    engagementFailures.set(channel,0);
     const sid=d.payload.session.id;
     const config=[
      ['channel.follow','2',{broadcaster_user_id:channel,moderator_user_id:channel}],
@@ -260,21 +283,23 @@ function connectEngagement(channel){
    }
   }catch(err){log(channel,'twitch-engagement-error',err.message)}
  });
- ws.on('close',()=>{if(engagementSockets.get(channel)===ws){const handle=setTimeout(()=>connectEngagement(channel),10000);handle.unref?.()}});
+ ws.on('close',(code)=>{if(engagementSockets.get(channel)===ws){const n=engagementFailures.get(channel)||0;engagementFailures.set(channel,n+1);const delay=Math.min(120000,10000*2**Math.min(n,4));log(channel,'twitch-engagement-reconnect','Socket closed ('+code+'), retrying in '+delay/1000+'s');const handle=setTimeout(()=>{if(engagementSockets.get(channel)===ws)connectEngagement(channel)},delay);handle.unref?.()}});
  ws.on('error',err=>log(channel,'twitch-engagement-ws-error',err.message));
 }
 const sockets=new Map();
 const chatHealth=new Map();
-let chatGeneration=0;
+let chatGeneration=0,chatFailures=0,chatRetry=null;
 async function connectChat(){
  const id=botId();if(!id)return;
+ clearTimeout(chatRetry);chatRetry=null;
  const generation=++chatGeneration;
  const previous=sockets.get('bot');
  if(previous){sockets.delete('bot');previous.close()}
  function openSocket(url,isReconnect=false){
   if(generation!==chatGeneration)return;
-  const ws=new WebSocket(url);
+  const ws=new WebSocket(url,{handshakeTimeout:15000});
   sockets.set('bot',ws);
+  const watchdog=keepaliveWatchdog(ws,'Chat EventSub');
   ws.on('message',async raw=>{
    try{
     const d=JSON.parse(String(raw)),type=d.metadata?.message_type;
@@ -297,6 +322,8 @@ async function connectChat(){
      return;
     }
     if(type==='session_welcome'){
+     watchdog.setTimeoutSeconds(d.payload.session.keepalive_timeout_seconds);
+     chatFailures=0;
      if(isReconnect)return; // Twitch preserves existing EventSub subscriptions across reconnect URLs.
      const sessionId=d.payload.session.id;
      for(const ch of db.prepare('SELECT id FROM channels WHERE enabled=1').all()){
@@ -313,11 +340,13 @@ async function connectChat(){
     }
    }catch(err){console.error('Chat EventSub:',err.message)}
   });
-  ws.on('close',()=>{
+  ws.on('close',(code,reason)=>{
    if(generation===chatGeneration&&sockets.get('bot')===ws){
     sockets.delete('bot');
-    const handle=setTimeout(()=>{if(generation===chatGeneration)void connectChat()},5000);
-    handle.unref?.();
+    const delay=Math.min(60000,5000*2**Math.min(chatFailures++,4));
+    console.warn('Chat EventSub closed ('+code+(reason?.length?' '+reason:'')+'), reconnecting in '+delay/1000+'s');
+    chatRetry=setTimeout(()=>{chatRetry=null;if(generation===chatGeneration)void connectChat().catch(err=>console.error('Chat reconnect:',err.message))},delay);
+    chatRetry.unref?.();
    }
   });
   ws.on('error',err=>console.error('Chat EventSub socket:',err.message));
@@ -460,6 +489,7 @@ const engagement=installEngagement({app,db,withUser,csrf,safe,say,moderate,log,a
 const creator=installCreator({app,db,withUser,csrf,safe,log,say,access});
 installVoice({app,db,withUser,csrf,access,api,clip,log,say});
 installVoiceCompanion({app,db,withUser,csrf,access,api,clip,log,say});
+const chatClip=installChatClip({app,db,withUser,csrf,access,api,clip,log,say});
 const platformRuntime=installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,relay,streamActivity,twitchApi:api});
 creatorTools.setProviderStatus(channel=>{
  const bot=sockets.get('bot');
@@ -468,4 +498,7 @@ creatorTools.setProviderStatus(channel=>{
 app.get('/dashboard',(req,res)=>{res.set('Cache-Control','no-store, max-age=0');return req.session.uid?res.sendFile(path.resolve('public/dashboard.html')):res.redirect('/login')});
 app.get('/login',(req,res)=>req.session.uid?res.redirect('/dashboard'):res.sendFile(path.resolve('public/login.html')));
 app.get('/api/build-info',(req,res)=>res.set('Cache-Control','no-store').json({version:process.env.GITHUB_SHA||process.env.APP_VERSION||'local',providers:['twitch','kick','vpzone']}));
-app.use(express.static('public',{index:'index.html',redirect:false,setHeaders:(res,file)=>{if(/(?:studio\.js|dashboard\.html)$/.test(file))res.setHeader('Cache-Control','no-store, max-age=0')}}));app.listen(PORT,()=>console.log('KitsuFlowBOT on '+PORT));connectChat();for(const row of db.prepare('SELECT id FROM channels').all())connectEngagement(row.id);
+app.use(express.static('public',{index:'index.html',redirect:false,setHeaders:(res,file)=>{if(/(?:studio\.js|dashboard\.html)$/.test(file))res.setHeader('Cache-Control','no-store, max-age=0')}}));app.listen(PORT,()=>console.log('KitsuFlowBOT on '+PORT));connectChat();
+// Safety net: if the bot socket is gone and no retry is scheduled, bring it back.
+setInterval(()=>{const ws=sockets.get('bot');if(botId()&&!chatRetry&&(!ws||ws.readyState===WebSocket.CLOSED)){console.warn('Chat EventSub health check: socket missing, reconnecting');void connectChat().catch(err=>console.error('Chat reconnect:',err.message))}},60000).unref?.();
+process.on('unhandledRejection',err=>console.error('Unhandled rejection:',err?.message||err));for(const row of db.prepare('SELECT id FROM channels').all())connectEngagement(row.id);

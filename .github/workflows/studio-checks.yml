@@ -27,6 +27,7 @@ jobs:
           node --check public/multichat.js
           node --check public/obs-live.js
           node --check voice-companion.js
+          node --check chat-clip.js
           python3 -m py_compile voice-worker.py
       - name: Verify required Studio assets
         run: |

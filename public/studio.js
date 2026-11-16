@@ -172,6 +172,16 @@ async function voice(){
  btn('Create clip now',async()=>{const x=await api('/api/clip','POST');notify('Clip created: '+x.id)})));
  const history=card('Recent voice clips','Results of phrases detected from stream audio.');
  history.append(table(['When','Phrase','Clip'],voiceData.events.map(x=>[x.created,x.phrase,x.clip_id||'Failed'])));
+ const clipData=await api('/api/clip/settings');
+ const cs=clipData.settings;
+ const chatClip=card('Chat !clip command','Viewers type !clip in Twitch chat to clip the last 60 seconds. The bot checks the stream is live, applies a shared cooldown and posts the clip link.');
+ const clipEnabled=input('Enable !clip in chat',cs.enabled,'checkbox');
+ const clipLevel=input('Who can use !clip','', 'select');
+ for(const level of clipData.levels){const o=e('option',level==='everyone'?'Everyone':level==='vip'?'VIPs + mods':level==='subscriber'?'Subscribers, VIPs + mods':'Moderators only');o.value=level;clipLevel.el.append(o)}clipLevel.el.value=cs.level;
+ const clipCooldown=input('Cooldown between clips (seconds)',cs.cooldown,'number');
+ chatClip.append(grid('cols2',clipEnabled.node,clipLevel.node,clipCooldown.node),actions(btn('Save !clip settings',async()=>{await api('/api/clip/settings','POST',{enabled:clipEnabled.value(),level:clipLevel.value(),cooldown:clipCooldown.value()});notify('!clip settings saved');await reloadView()},'primary')));
+ const clipHistory=card('Recent chat clips','Clips requested with !clip in chat.');
+ clipHistory.append(table(['When','Viewer','Result','Clip / details'],clipData.events.map(x=>[x.created,x.user_login,x.status,x.clip_id?'https://clips.twitch.tv/'+x.clip_id:x.detail])));
  const extra=await api('/api/voice/platforms');
  const platformCard=card('Kick & VPZone voice detection','Use the server audio worker on linked streams. Voice phrases are logged, but these platforms do not currently offer a supported public clip creation API.');
  for(const platform of ['kick','vpzone']){
@@ -213,9 +223,9 @@ async function voice(){
   const desktopHistory=card('Desktop clip results','Twitch creates native clips when live. Kick and VPZone report unsupported, rather than claiming a clip exists.');
   desktopHistory.append(table(['When','Platform','Result','Details'],companion.history.map(x=>[x.created,x.platform,x.status,x.clip_id||x.detail])));
   desktop.append(e('p','Companion source and Windows/Linux downloads: GitHub desktopapp branch (voice-companion/). Install Python, Vosk, sounddevice and a local speech model on the PC.','description'));
-  return h('div','stack',alpha,desktop,desktopHistory,v,history,platformCard,triggerLog);
+  return h('div','stack',alpha,desktop,desktopHistory,chatClip,clipHistory,v,history,platformCard,triggerLog);
  }
- return h('div','stack',alpha,v,history,platformCard,triggerLog);
+ return h('div','stack',alpha,chatClip,clipHistory,v,history,platformCard,triggerLog);
 }
 function loyalty(){return wrap(form('Loyalty settings',[['enabled','Enabled','checkbox',!!engagement.loyalty.enabled],['points_per_interval','Points per interval','number',engagement.loyalty.points_per_interval],['interval_minutes','Interval minutes','number',engagement.loyalty.interval_minutes]],'Save loyalty',x=>api('/api/engagement/loyalty','POST',x)),h('section','card',e('h2','Points leaderboard'),table(['Viewer','Points','Estimated active minutes'],creator.leaderboard.map(x=>[x.username,x.points,x.watch_minutes]))))}
 function campaigns(){return wrap(form('New giveaway or contest',[['title','Title'],['kind','Type','options',['giveaway','contest']],['cost','Entry points','number',0]],'Create event',x=>api('/api/creator/campaign','POST',x)),h('section','card',e('h2','Events'),table(['Title','Type','Status','Draw'],creator.campaigns.map(x=>[x.title,x.kind,x.status,x.status==='open'?btn('Draw winner',async()=>{const y=await api('/api/creator/campaign/draw','POST',{id:x.id});notify('Winner: '+y.winner);await reloadView()}):x.winner||'Closed']))))}
