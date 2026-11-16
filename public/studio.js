@@ -169,7 +169,8 @@ async function pokemon(){
   actions(btn('Save Pokémon settings',async()=>{await api('/api/pokemon','POST',{enabled:enabled.value(),spawn_minutes:minutes.value(),global_raids:globals.value(),gens:genPicks.filter(x=>x.box.value()).map(x=>x.g)});notify('Pokémon settings saved');await reloadView()},'primary'),
    btn('Spawn wild Pokémon now',async()=>{await api('/api/pokemon/spawn','POST',{});notify('A wild Pokémon appeared in chat');await reloadView()}),
    btn('Start channel raid',async()=>{await api('/api/pokemon/raid','POST',{});notify('Raid started in chat');await reloadView()})));
- const help=card('Chat commands','!pokecatch [ball] · !pokeshop · !pokebuy <item> [qty] · !pokebag · !pokedex [@user] · !poketop · !pokeraid · !pokecandy <pokemon> · !pokelure · !pokehelp — Mods: !pokespawn, !pokeraidstart');
+ const help=card('Chat commands','Catch: !pokecatch [ball] · !pokelure · Shop: !pokeshop · !pokebuy <item> [qty] · !pokebag · Collection: !pokebox · !pokedex [@user] · !poketop · Training: !pokeprimary <pokemon|#id> (gains XP from chatting, catching and raids; evolves at the right level) · !pokecandy · !pokeevolve [into] · Trading: !pokemarket [page|pokemon] · !pokesell <pokemon|#id> <price> · !pokemarket buy|cancel <id> · !poketrade @user <mine> for <theirs> · Raids: !pokeraid — Mods: !pokespawn, !pokeraidstart');
+ const market=card('PokéMarket listings','Pokémon viewers are selling in this channel for loyalty points.');market.append(table(['#','Pokémon','Price','Seller'],(d.market||[]).map(x=>['#'+x.id,x.pokemon,x.price,x.seller])));
  const parts=[cfg,genRow,help];
  if(d.operator){
   const admin=card('Global Raids (operator)','Starts one raid boss with shared HP in every live channel that has the game and Global Raids on.'+(d.autoGlobalRaidHours?' Auto global raid every '+d.autoGlobalRaidHours+'h.':' Set POKEMON_GLOBAL_RAID_HOURS for automatic global raids.'));
@@ -178,7 +179,7 @@ async function pokemon(){
  }
  const top=card('Top trainers in this channel');top.append(table(['Trainer','Pokédex','Caught'],d.top.map(x=>[x.login,x.uniq+'/'+d.dexTotal,x.total])));
  const log=card('Recent Pokémon activity');log.append(table(['When','Event','Details'],d.events.map(x=>[x.created,x.kind,x.detail])));
- return h('div','stack',...parts,top,log);
+ return h('div','stack',...parts,market,top,log);
 }
 async function voice(){
  const alpha=card('Desktop companion — Alpha / Work in progress','The Desktop app is in Alpha. Please expect issues and bugs, and report problems on GitHub Issues.');

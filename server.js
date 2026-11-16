@@ -147,6 +147,7 @@ if(bad&&scamSettings(ch.id).enabled===1&&!e.badges?.some(b=>b.set_id==='broadcas
  try{await moderate(ch.id,e.chatter_user_id,action==='timeout'?1:null,reason);log(ch.id,'scam-'+action,e.chatter_user_login+': '+reason)}catch(err){log(ch.id,'scam-ban-error',err.message)}
  return;
 }
+if(rawText.trim())void pokemon.onChat(ch,e).catch(err=>log(ch.id,'pokemon-xp-error',err.message));
 void relay.relay(ch.id,'twitch',e.chatter_user_login,rawText,{isBot:false,fragments:e.message?.fragments||[]}).catch(err=>log(ch.id,'relay-error',err.message));
 const value=(e.message?.text||'').trim(),parts=value.split(/\s+/),cmd=parts[0]?.toLowerCase(),isMod=e.badges?.some(b=>b.set_id==='moderator'||b.set_id==='broadcaster');
 const permitKey=ch.id+':'+e.chatter_user_id,permitted=(linkPermits.get(permitKey)||0)>Date.now();
