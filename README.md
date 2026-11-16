@@ -41,7 +41,7 @@ Node.js 22+, Twitch developer application, an HTTPS reverse proxy in production.
 Toggle each one per channel under **Custom Commands → Global bot commands**.
 
 - **Info:** `!game`, `!title`, `!viewers`, `!followers`, `!subcount`, `!uptime`, `!followage`, `!accountage`, `!watchtime`, `!commands`
-- **Fun:** `!lurk`, `!unlurk`, `!hug @user`, `!love @user`, `!8ball question`, `!roll` / `!roll 20` / `!roll 2d6`, `!coinflip`, `!rps rock`
+- **Fun:** `!lurk` / `!unlurk` (random friendly lines; unlurk says how long you lurked), `!hug @user`, `!love @user`, `!8ball question`, `!roll` / `!roll 20` / `!roll 2d6`, `!coinflip`, `!rps rock`
 - **Viewer interactions:** `!pat`, `!boop`, `!bonk`, `!slap`, `!highfive`, `!cuddle`, `!poke`, `!wave`, `!fight` (no points), `!cookie @user` (cookie count saved per channel)
 - **Random fun:** `!ship @a @b`, `!rate thing`, `!vibecheck`, `!iq`, `!howcute`, `!rizz`, `!choose a | b | c`, `!fortune`, `!joke`, `!compliment @user`, `!wyr`, `!hydrate`, `!hypetrain` (chat joins within 2 minutes). `!ship`/`!rate` give the same answer for the same input; `!iq`/`!howcute`/`!rizz` change daily
 - **Points:** `!givepoints @user 100`. Points games are **off by default**: `!gamble 100|all|50%` (1–59 lose, 60–98 double, 99–100 triple), `!roulette`, `!slots`, `!duel @user 100` (target replies `!accept` / `!deny` within 2 minutes)

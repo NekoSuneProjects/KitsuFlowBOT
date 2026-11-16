@@ -63,6 +63,33 @@ const JOKES=['Why did the gamer bring a ladder? To reach the next level.','I wou
 const COMPLIMENTS=['you light up this chat ✨','your vibes are immaculate','you have excellent taste in streams','you make the community better just by being here','your aim is probably cracked','you are a certified legend','you deserve a cookie and a nap','your energy is contagious'];
 const WYR=['Would you rather only play one game forever or never replay a game?','Would you rather have infinite lag or 1 FPS?','Would you rather be able to fly or be invisible?','Would you rather fight 100 duck-sized horses or 1 horse-sized duck?','Would you rather lose all your saves or your favourite headset?','Would you rather always speak in rhymes or always sing instead of talk?','Would you rather live in VRChat or Minecraft?','Would you rather have a pet dragon or a pet fox?'];
 const VIBES=['immaculate ✨','chaotic but fun 🌀','cosy and warm ☕','suspiciously sleepy 😴','pure gamer energy 🎮','certified wholesome 💖','unhinged (affectionate) 🤪','main character energy 🌟'];
+// {user} and {channel} are filled in. Keep these friendly and short.
+const LURK=[
+ '{user} is now lurking in the shadows. Enjoy the stream! 👀',
+ '{user} grabbed a snack and a blanket — lurk mode activated 🍿',
+ '{user} has gone into stealth mode. We still love you! 💜',
+ '{user} is lurking. Thanks for keeping the stream company! 🦊',
+ '{user} turned invisible... but the view count remembers 👻',
+ '{user} is lurking like a pro. Enjoy, and come say hi anytime! 👋',
+ '{user} curled up in the corner of the stream. Comfy lurk! 🛋️',
+ '{user} is off to lurk-land. Every lurk helps {channel}, thank you! 🙏',
+ '{user} slipped behind the curtain. Lurk responsibly and stay hydrated 💧',
+ '{user} has entered the lurk zone. Have fun, wherever you are! 🌙',
+ '{user} is now a professional lurker. Pay is in good vibes ✨',
+ '{user} put on their lurking ears. Listening quietly 🎧',
+ '{user} has become one with the background. Peaceful lurking! 🍃',
+ '{user} is lurking! Tail wags from {channel} 🦊💜'
+];
+const UNLURK=[
+ 'Welcome back from the shadows, {user}! 👋',
+ '{user} has returned from the lurk dimension! 🌀',
+ 'Look who it is! {user} is back 🎉',
+ '{user} came out of hiding — hi hi! 💜',
+ 'The lurker awakens! Welcome back, {user} ✨',
+ '{user} is back in chat. We missed you! 🦊',
+ '{user} re-entered the chat. Lurk complete! ✅'
+];
+const fill=(line,who,channel)=>line.replaceAll('{user}',who).replaceAll('{channel}',channel);
 const SLOTS=['🍒','🍋','🍇','🔔','⭐','💎'];
 
 export function createExtraCommands({db,api,say,resolveViewer,recentChatters,permits,log}){
@@ -79,7 +106,8 @@ export function createExtraCommands({db,api,say,resolveViewer,recentChatters,per
  };
  const duels=new Map();
  db.exec('CREATE TABLE IF NOT EXISTS fun_cookies(channel TEXT NOT NULL,user_id TEXT NOT NULL,login TEXT NOT NULL,cookies INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(channel,user_id))');
- const hype=new Map(); // channel -> {riders:Set,expires}
+ const hype=new Map();
+ const lurkers=new Map(); // channel:user -> lurk start (in memory; resets on restart) // channel -> {riders:Set,expires}
  // Stable pseudo-random % for a pair/name, so !ship a b gives the same answer each time.
  const seeded=(...keys)=>crypto.createHash('sha256').update(keys.map(k=>String(k).toLowerCase()).sort().join('|')).digest().readUInt32BE(0);
  const ACTIONS={
@@ -116,8 +144,17 @@ export function createExtraCommands({db,api,say,resolveViewer,recentChatters,per
     try{const s=await api(ch.id,'subscriptions?broadcaster_id='+encodeURIComponent(ch.id)+'&first=1');return say(ch.id,ch.login+' has '+Number(s.total||0).toLocaleString('en-GB')+' subscribers.')}
     catch{return say(ch.id,'Sub count unavailable: needs an affiliate/partner channel and subscription permissions.')}
    }
-   case 'lurk':return say(ch.id,who+' is now lurking in the shadows. Enjoy the stream! 👀');
-   case 'unlurk':return say(ch.id,'Welcome back from the shadows, '+who+'! 👋');
+   case 'lurk':{
+    lurkers.set(ch.id+':'+e.chatter_user_id,Date.now());
+    if(lurkers.size>5000)for(const [k,t] of lurkers)if(t<Date.now()-86400000)lurkers.delete(k);
+    return say(ch.id,fill(pick(LURK),who,ch.login));
+   }
+   case 'unlurk':{
+    const key=ch.id+':'+e.chatter_user_id,since=lurkers.get(key);lurkers.delete(key);
+    const mins=since?Math.floor((Date.now()-since)/60000):0;
+    const away=!since?'':mins<1?' (that was a quick lurk!)':mins<60?' (lurked for '+mins+' min)':' (lurked for '+Math.floor(mins/60)+'h '+(mins%60)+'m)';
+    return say(ch.id,fill(pick(UNLURK),who,ch.login)+away);
+   }
    case 'hug':return say(ch.id,target?who+' gives '+target+' a big warm hug! 🤗':who+' hugs everyone in chat! 🤗');
    case 'love':{if(!target)return say(ch.id,'@'+who+' usage: !love @user');return say(ch.id,'There\'s '+rand(101)+'% love between '+who+' and '+target+' ❤️')}
    case '8ball':{if(parts.length<2)return say(ch.id,'@'+who+' ask the 8-ball a question: !8ball will I win?');return say(ch.id,'🎱 @'+who+' '+pick(EIGHTBALL))}
