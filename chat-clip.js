@@ -1,3 +1,4 @@
+import {displayName} from './global-commands-extra.js';
 // Chat !clip command. Mirrors the voice clip flow (voice.js): per-channel settings,
 // atomic cooldown claim, live check, Twitch clip, history row, link posted to chat.
 const LEVELS=['everyone','subscriber','vip','moderator'];
@@ -26,7 +27,7 @@ export function installChatClip({app,db,withUser,csrf,access,api,clip,log,say}){
  const release=(channel,now)=>db.prepare('UPDATE chat_clip_settings SET last_clip=0 WHERE channel=? AND last_clip=?').run(channel,now);
 
  async function onCommand(ch,e){
-  const cfg=find(ch.id),who=e.chatter_user_login||e.chatter_user_name||'viewer';
+  const cfg=find(ch.id),who=displayName(e);
   if(!cfg.enabled)return;
   if(!permitted(cfg.level,e))return;
   const now=Date.now();

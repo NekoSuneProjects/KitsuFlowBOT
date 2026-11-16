@@ -55,6 +55,8 @@ export const EXTRA_COMMANDS={
 };
 
 const rand=n=>crypto.randomInt(n);
+// Twitch display name (e.g. NekoSuneVR); fall back to login for localised names so @mentions still work.
+export const displayName=e=>/^[A-Za-z0-9_]{1,25}$/.test(e.chatter_user_name||'')?e.chatter_user_name:(e.chatter_user_login||'viewer');
 const pick=list=>list[rand(list.length)];
 const EIGHTBALL=['It is certain.','Without a doubt.','Yes, definitely.','You may rely on it.','Most likely.','Outlook good.','Signs point to yes.','Reply hazy, try again.','Ask again later.','Cannot predict now.','Concentrate and ask again.','Don\'t count on it.','My reply is no.','My sources say no.','Outlook not so good.','Very doubtful.'];
 const SLAP_ITEMS=['a large trout 🐟','a rubber chicken 🐔','a wet noodle 🍜','a pillow ☁️','a fluffy tail 🦊','a baguette 🥖','a keyboard ⌨️','a VR controller 🎮'];
@@ -121,7 +123,7 @@ export function createExtraCommands({db,api,say,resolveViewer,recentChatters,per
  }; // channel:targetId -> {from,fromLogin,amount,expires}
 
  async function bet(ch,e,raw,name){
-  const who=e.chatter_user_login,have=balance(ch.id,e.chatter_user_id),amount=parseBet(raw,have);
+  const who=displayName(e),have=balance(ch.id,e.chatter_user_id),amount=parseBet(raw,have);
   if(amount===null||amount<1){await say(ch.id,'@'+who+' usage: !'+name+' amount | all | 50% (you have '+have+' points)');return null}
   if(amount>have||!debit.run(amount,ch.id,e.chatter_user_id,amount).changes){await say(ch.id,'@'+who+' you only have '+have+' points.');return null}
   return amount;
@@ -129,7 +131,7 @@ export function createExtraCommands({db,api,say,resolveViewer,recentChatters,per
  const pay=(ch,e,amount)=>adjust.run(ch.id,e.chatter_user_id,e.chatter_user_login,amount);
 
  return async function run(name,{ch,e,parts}){
-  const who=e.chatter_user_login,target=(parts[1]||'').replace(/^@/,'');
+  const who=displayName(e),target=(parts[1]||'').replace(/^@/,'');
   const stream=async()=>(await api(ch.id,'streams?user_id='+encodeURIComponent(ch.id))).data?.[0]||null;
   const channelInfo=async()=>(await api(ch.id,'channels?broadcaster_id='+encodeURIComponent(ch.id))).data?.[0]||{};
   switch(name){
