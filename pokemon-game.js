@@ -4,10 +4,13 @@
 // - Pokédex + bag are global per Twitch user, so collections follow viewers between channels.
 // - Raids: channel raids (mods) and Global Raids across every live channel with the game on.
 import crypto from 'node:crypto';
+import {readFileSync} from 'node:fs';
 
-// Gen 1. Tier: c common, u uncommon, r rare, e epic, L legendary (raid-only).
-const DEX_RAW='Bulbasaur:u,Ivysaur:r,Venusaur:e,Charmander:u,Charmeleon:r,Charizard:e,Squirtle:u,Wartortle:r,Blastoise:e,Caterpie:c,Metapod:c,Butterfree:u,Weedle:c,Kakuna:c,Beedrill:u,Pidgey:c,Pidgeotto:u,Pidgeot:r,Rattata:c,Raticate:u,Spearow:c,Fearow:u,Ekans:c,Arbok:u,Pikachu:u,Raichu:r,Sandshrew:c,Sandslash:u,Nidoran♀:c,Nidorina:u,Nidoqueen:r,Nidoran♂:c,Nidorino:u,Nidoking:r,Clefairy:u,Clefable:r,Vulpix:u,Ninetales:r,Jigglypuff:c,Wigglytuff:u,Zubat:c,Golbat:u,Oddish:c,Gloom:u,Vileplume:r,Paras:c,Parasect:u,Venonat:c,Venomoth:u,Diglett:c,Dugtrio:u,Meowth:c,Persian:u,Psyduck:c,Golduck:u,Mankey:c,Primeape:u,Growlithe:u,Arcanine:r,Poliwag:c,Poliwhirl:u,Poliwrath:r,Abra:u,Kadabra:r,Alakazam:e,Machop:c,Machoke:u,Machamp:r,Bellsprout:c,Weepinbell:u,Victreebel:r,Tentacool:c,Tentacruel:u,Geodude:c,Graveler:u,Golem:r,Ponyta:c,Rapidash:u,Slowpoke:c,Slowbro:u,Magnemite:c,Magneton:u,Farfetch\'d:u,Doduo:c,Dodrio:u,Seel:c,Dewgong:u,Grimer:c,Muk:u,Shellder:c,Cloyster:u,Gastly:u,Haunter:r,Gengar:e,Onix:u,Drowzee:c,Hypno:u,Krabby:c,Kingler:u,Voltorb:c,Electrode:u,Exeggcute:c,Exeggutor:u,Cubone:c,Marowak:u,Hitmonlee:r,Hitmonchan:r,Lickitung:u,Koffing:c,Weezing:u,Rhyhorn:c,Rhydon:u,Chansey:r,Tangela:u,Kangaskhan:r,Horsea:c,Seadra:u,Goldeen:c,Seaking:u,Staryu:c,Starmie:u,Mr. Mime:r,Scyther:r,Jynx:u,Electabuzz:r,Magmar:r,Pinsir:r,Tauros:r,Magikarp:c,Gyarados:e,Lapras:e,Ditto:r,Eevee:u,Vaporeon:r,Jolteon:r,Flareon:r,Porygon:r,Omanyte:u,Omastar:r,Kabuto:u,Kabutops:r,Aerodactyl:e,Snorlax:e,Articuno:L,Zapdos:L,Moltres:L,Dratini:r,Dragonair:e,Dragonite:e,Mewtwo:L,Mew:L';
-export const DEX=DEX_RAW.split(',').map((x,i)=>{const at=x.lastIndexOf(':');return {dex:i+1,name:x.slice(0,at),tier:x.slice(at+1)}});
+// All 1025 species (Gens 1–9) from PokeAPI data: [dex, name, generation, tier].
+// Tier: c common, u uncommon, r rare, e epic, L legendary/mythical (raid-only).
+// Rebuild pokedex.json from PokeAPI's pokemon_species CSVs if new generations are released.
+export const DEX=JSON.parse(readFileSync(new URL('./pokedex.json',import.meta.url),'utf8')).map(([dex,name,gen,tier])=>({dex,name,gen,tier}));
+const DEX_TOTAL=DEX.length,GENS=[...new Set(DEX.map(p=>p.gen))].sort((a,b)=>a-b);
 const TIERS={
  c:{label:'Common',weight:55,catch:0.75,power:1},
  u:{label:'Uncommon',weight:28,catch:0.55,power:1.2},
@@ -27,22 +30,25 @@ const ITEMS={
  lure:{name:'Lure',price:800,desc:'Spawns a wild Pokémon now: !pokelure'}
 };
 const ALIASES={poke:'pokeball',pokeball:'pokeball',ball:'pokeball',great:'greatball',greatball:'greatball',ultra:'ultraball',ultraball:'ultraball',master:'masterball',masterball:'masterball',candy:'rarecandy',rarecandy:'rarecandy',lure:'lure'};
-const RAID_BOSSES=['Articuno','Zapdos','Moltres','Mewtwo','Mew','Dragonite','Snorlax','Gyarados','Charizard','Lapras','Gengar','Aerodactyl'];
 const STARTER_BALLS=5,CATCH_WINDOW=90000,RAID_MINUTES=10,SHINY_ODDS=256;
 const rand=n=>crypto.randomInt(n);
 const pick=a=>a[rand(a.length)];
 const chance=p=>crypto.randomInt(1000000)<p*1000000;
-const byName=n=>{const k=String(n||'').toLowerCase().replace(/[^a-z0-9♀♂]/g,'');return DEX.find(p=>p.name.toLowerCase().replace(/[^a-z0-9♀♂]/g,'')===k)};
+const key=n=>String(n||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9♀♂]/g,'');
+const NAME_INDEX=new Map(DEX.map(p=>[key(p.name),p]));
+const byName=n=>NAME_INDEX.get(key(n));
+const parseGens=v=>{const set=new Set(String(v||'').split(',').map(Number).filter(g=>GENS.includes(g)));return set.size?set:new Set(GENS)};
 const displayName=e=>/^[A-Za-z0-9_]{1,25}$/.test(e.chatter_user_name||'')?e.chatter_user_name:(e.chatter_user_login||'viewer');
 
 export function installPokemon({app,db,withUser,csrf,access,api,say,log,isOperator,botId}){
- db.exec(`CREATE TABLE IF NOT EXISTS poke_settings(channel TEXT PRIMARY KEY,enabled INTEGER NOT NULL DEFAULT 0,spawn_minutes INTEGER NOT NULL DEFAULT 15,last_spawn INTEGER NOT NULL DEFAULT 0,global_raids INTEGER NOT NULL DEFAULT 1);
+ db.exec(`CREATE TABLE IF NOT EXISTS poke_settings(channel TEXT PRIMARY KEY,enabled INTEGER NOT NULL DEFAULT 0,spawn_minutes INTEGER NOT NULL DEFAULT 15,last_spawn INTEGER NOT NULL DEFAULT 0,global_raids INTEGER NOT NULL DEFAULT 1,gens TEXT NOT NULL DEFAULT '');
  CREATE TABLE IF NOT EXISTS poke_bag(user_id TEXT NOT NULL,item TEXT NOT NULL,qty INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,item));
  CREATE TABLE IF NOT EXISTS poke_trainers(user_id TEXT PRIMARY KEY,login TEXT NOT NULL,created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
  CREATE TABLE IF NOT EXISTS poke_caught(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id TEXT NOT NULL,login TEXT NOT NULL,dex INTEGER NOT NULL,level INTEGER NOT NULL,shiny INTEGER NOT NULL DEFAULT 0,channel TEXT NOT NULL,source TEXT NOT NULL DEFAULT 'wild',created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
  CREATE INDEX IF NOT EXISTS poke_caught_user ON poke_caught(user_id,dex);
  CREATE TABLE IF NOT EXISTS poke_events(id INTEGER PRIMARY KEY AUTOINCREMENT,channel TEXT NOT NULL,kind TEXT NOT NULL,detail TEXT NOT NULL,created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);`);
- const settings=ch=>db.prepare('SELECT * FROM poke_settings WHERE channel=?').get(ch)||{channel:ch,enabled:0,spawn_minutes:15,last_spawn:0,global_raids:1};
+ try{db.exec("ALTER TABLE poke_settings ADD COLUMN gens TEXT NOT NULL DEFAULT ''")}catch{} // older installs
+ const settings=ch=>db.prepare('SELECT * FROM poke_settings WHERE channel=?').get(ch)||{channel:ch,enabled:0,spawn_minutes:15,last_spawn:0,global_raids:1,gens:''};
  const event=(ch,kind,detail)=>db.prepare('INSERT INTO poke_events(channel,kind,detail) VALUES(?,?,?)').run(ch,kind,String(detail).slice(0,300));
  const points=(ch,user)=>db.prepare('SELECT points FROM loyalty WHERE channel=? AND user_id=?').get(ch,user)?.points||0;
  const spend=(ch,user,n)=>db.prepare('UPDATE loyalty SET points=points-? WHERE channel=? AND user_id=? AND points>=?').run(n,ch,user,n).changes>0;
@@ -58,15 +64,15 @@ export function installPokemon({app,db,withUser,csrf,access,api,say,log,isOperat
 
  // ---- wild spawns ----
  const spawns=new Map(); // channel -> {p,shiny,level,expires,caught:Set,tried:Set}
- function rollWild(){const pool=DEX.filter(p=>TIERS[p.tier].weight>0),total=pool.reduce((a,p)=>a+TIERS[p.tier].weight,0);let r=rand(total);for(const p of pool){r-=TIERS[p.tier].weight;if(r<0)return p}return pool[0]}
+ function rollWild(ch){const gens=parseGens(settings(ch).gens),pool=DEX.filter(p=>TIERS[p.tier].weight>0&&gens.has(p.gen)),total=pool.reduce((a,p)=>a+TIERS[p.tier].weight,0);let r=rand(total);for(const p of pool){r-=TIERS[p.tier].weight;if(r<0)return p}return pool[0]}
  async function spawn(ch,login,reason='wild'){
-  const p=rollWild(),shiny=rand(SHINY_ODDS)===0,level=1+rand(30);
+  const p=rollWild(ch),shiny=rand(SHINY_ODDS)===0,level=1+rand(30);
   const s={p,shiny,level,expires:Date.now()+CATCH_WINDOW,caught:new Set(),tried:new Set()};
   spawns.set(ch,s);
   db.prepare('INSERT INTO poke_settings(channel,last_spawn) VALUES(?,?) ON CONFLICT(channel) DO UPDATE SET last_spawn=excluded.last_spawn').run(ch,Date.now());
   event(ch,'spawn',label(p,shiny,level));
   const t=setTimeout(()=>{if(spawns.get(ch)!==s)return;spawns.delete(ch);void say(ch,'💨 The wild '+label(p,shiny)+' fled!'+(s.caught.size?' Caught by '+s.caught.size+' trainer'+(s.caught.size===1?'':'s')+'.':'')).catch(()=>{})},CATCH_WINDOW);t.unref?.();
-  await say(ch,(shiny?'✨✨ A SHINY ':'🌿 A wild ')+p.name+' (Lv '+level+', '+TIERS[p.tier].label+') appeared'+(reason==='lure'?' from a Lure':'')+'! Type !pokecatch [pokeball|greatball|ultraball|masterball] within 90s!');
+  await say(ch,(shiny?'✨✨ A SHINY ':'🌿 A wild ')+p.name+' (Lv '+level+', '+TIERS[p.tier].label+', Gen '+p.gen+') appeared'+(reason==='lure'?' from a Lure':'')+'! Type !pokecatch [pokeball|greatball|ultraball|masterball] within 90s!');
  }
  async function tick(){
   const rows=db.prepare('SELECT p.*,c.login FROM poke_settings p JOIN channels c ON c.id=p.channel WHERE p.enabled=1 AND c.enabled=1').all();
@@ -83,7 +89,8 @@ export function installPokemon({app,db,withUser,csrf,access,api,say,log,isOperat
  let globalRaid=null;const localRaids=new Map();
  const raidFor=ch=>localRaids.get(ch)||(globalRaid&&globalRaid.channels.has(ch)?globalRaid:null);
  async function startRaid({channels,global,starter}){
-  const bossName=pick(RAID_BOSSES),boss=byName(bossName),hp=global?6000:1500;
+  const gens=global?new Set(GENS):parseGens(settings(channels[0]).gens);
+  const legends=DEX.filter(p=>p.tier==='L'&&gens.has(p.gen)),boss=pick(legends.length?legends:DEX.filter(p=>p.tier==='e')),hp=global?6000:1500;
   const raid={boss,level:50+rand(21),hp,maxHp:hp,global,channels:new Set(channels),players:new Map(),ends:Date.now()+RAID_MINUTES*60000,marks:new Set()};
   raid.timer=setTimeout(()=>{void endRaid(raid,false).catch(()=>{})},RAID_MINUTES*60000);raid.timer.unref?.();
   if(global)globalRaid=raid;else localRaids.set(channels[0],raid);
@@ -144,7 +151,7 @@ export function installPokemon({app,db,withUser,csrf,access,api,say,log,isOperat
      db.prepare('INSERT INTO poke_caught(user_id,login,dex,level,shiny,channel) VALUES(?,?,?,?,?,?)').run(uid,e.chatter_user_login,s.p.dex,s.level,s.shiny?1:0,ch.id);
      const total=db.prepare('SELECT COUNT(DISTINCT dex) n FROM poke_caught WHERE user_id=?').get(uid).n;
      const first=db.prepare('SELECT COUNT(*) n FROM poke_caught WHERE user_id=? AND dex=?').get(uid,s.p.dex).n===1;
-     await say(ch.id,'🎉 '+who+' caught '+label(s.p,s.shiny,s.level)+' with a '+BALLS[ball].name+'!'+(first?' New Pokédex entry ('+total+'/151)!':''));
+     await say(ch.id,'🎉 '+who+' caught '+label(s.p,s.shiny,s.level)+' with a '+BALLS[ball].name+'!'+(first?' New Pokédex entry ('+total+'/'+DEX_TOTAL+')!':''));
     }else await say(ch.id,'💥 Oh no! '+s.p.name+' broke free from '+who+'\'s '+BALLS[ball].name+'! ('+qty(uid,ball)+' left)');
     return true;
    }
@@ -168,11 +175,11 @@ export function installPokemon({app,db,withUser,csrf,access,api,say,log,isOperat
     if(!row){await say(ch.id,'That trainer hasn\'t played yet.');return true}
     const st=db.prepare('SELECT COUNT(DISTINCT dex) uniq,COUNT(*) total,SUM(shiny) shinies FROM poke_caught WHERE user_id=?').get(row.user_id);
     const best=strongest(row.user_id);
-    await say(ch.id,'📕 '+(target?row.login:who)+': '+st.uniq+'/151 Pokédex · '+st.total+' caught · '+(st.shinies||0)+' shiny'+(best?' · Strongest: '+label(DEX[best.dex-1],best.shiny,best.level):''));return true;
+    await say(ch.id,'📕 '+(target?row.login:who)+': '+st.uniq+'/'+DEX_TOTAL+' Pokédex · '+st.total+' caught · '+(st.shinies||0)+' shiny'+(best?' · Strongest: '+label(DEX[best.dex-1],best.shiny,best.level):''));return true;
    }
    case '!poketop':{
     const rows=db.prepare('SELECT t.login,COUNT(DISTINCT c.dex) n FROM poke_caught c JOIN poke_trainers t ON t.user_id=c.user_id GROUP BY c.user_id ORDER BY n DESC LIMIT 5').all();
-    await say(ch.id,rows.length?'🏅 Top trainers: '+rows.map((r,i)=>(i+1)+'. '+r.login+' ('+r.n+'/151)').join(' · '):'Nobody has caught anything yet!');return true;
+    await say(ch.id,rows.length?'🏅 Top trainers: '+rows.map((r,i)=>(i+1)+'. '+r.login+' ('+r.n+'/'+DEX_TOTAL+')').join(' · '):'Nobody has caught anything yet!');return true;
    }
    case '!pokecandy':{
     const p=byName(parts.slice(1).join(' '));
@@ -222,7 +229,7 @@ export function installPokemon({app,db,withUser,csrf,access,api,say,log,isOperat
  // ---- dashboard API ----
  app.get('/api/pokemon',withUser,access.channelOnly('editor'),(req,res)=>{
   const s=settings(req.channelId),raid=raidFor(req.channelId);
-  res.set('Cache-Control','no-store').json({settings:{enabled:Boolean(s.enabled),spawn_minutes:s.spawn_minutes,global_raids:Boolean(s.global_raids)},
+  res.set('Cache-Control','no-store').json({settings:{enabled:Boolean(s.enabled),spawn_minutes:s.spawn_minutes,global_raids:Boolean(s.global_raids),gens:[...parseGens(s.gens)]},allGens:GENS,dexTotal:DEX_TOTAL,
    spawn:spawns.get(req.channelId)?{name:spawns.get(req.channelId).p.name}:null,
    raid:raid?{boss:raid.boss.name,hp:raid.hp,max:raid.maxHp,global:raid.global,players:raid.players.size}:null,
    events:db.prepare('SELECT kind,detail,created FROM poke_events WHERE channel=? ORDER BY id DESC LIMIT 30').all(req.channelId),
@@ -230,9 +237,10 @@ export function installPokemon({app,db,withUser,csrf,access,api,say,log,isOperat
    operator:isOperator(req.session.uid),autoGlobalRaidHours:autoHours});
  });
  app.post('/api/pokemon',withUser,access.channelOnly('bot_supervisor'),csrf,(req,res)=>{
-  const {enabled,global_raids}=req.body||{},m=Number(req.body?.spawn_minutes);
+  const {enabled,global_raids}=req.body||{},m=Number(req.body?.spawn_minutes),gens=Array.isArray(req.body?.gens)?[...new Set(req.body.gens.map(Number))].filter(g=>GENS.includes(g)).sort((a,b)=>a-b):[...GENS];
+  if(!gens.length)return res.status(400).json({error:'Pick at least one generation'});
   if(typeof enabled!=='boolean'||typeof global_raids!=='boolean'||!Number.isInteger(m)||m<3||m>180)return res.status(400).json({error:'Invalid Pokémon settings (spawn every 3–180 minutes)'});
-  db.prepare('INSERT INTO poke_settings(channel,enabled,spawn_minutes,global_raids) VALUES(?,?,?,?) ON CONFLICT(channel) DO UPDATE SET enabled=excluded.enabled,spawn_minutes=excluded.spawn_minutes,global_raids=excluded.global_raids').run(req.channelId,enabled?1:0,m,global_raids?1:0);
+  db.prepare('INSERT INTO poke_settings(channel,enabled,spawn_minutes,global_raids,gens) VALUES(?,?,?,?,?) ON CONFLICT(channel) DO UPDATE SET enabled=excluded.enabled,spawn_minutes=excluded.spawn_minutes,global_raids=excluded.global_raids,gens=excluded.gens').run(req.channelId,enabled?1:0,m,global_raids?1:0,gens.length===GENS.length?'':gens.join(','));
   log(req.channelId,'pokemon-config',(enabled?'enabled':'disabled')+' every '+m+'m');res.json({ok:true});
  });
  app.post('/api/pokemon/spawn',withUser,access.channelOnly('bot_supervisor'),csrf,async(req,res)=>{

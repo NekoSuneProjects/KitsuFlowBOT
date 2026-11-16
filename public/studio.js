@@ -161,19 +161,22 @@ async function pokemon(){
  const enabled=input('Enable the Pokémon game',s.enabled,'checkbox');
  const minutes=input('Spawn a wild Pokémon every (minutes)',s.spawn_minutes,'number');
  const globals=input('Join Global Raids',s.global_raids,'checkbox');
+ const genPicks=d.allGens.map(g=>({g,box:input('Gen '+g,s.gens.includes(g),'checkbox')}));
+ const genRow=card('Spawn generations','Choose which generations appear as wild spawns and channel raid bosses ('+d.dexTotal+' Pokémon total). Global raids always use every generation.');
+ genRow.append(grid('cols2',...genPicks.map(x=>x.box.node)));
  cfg.append(grid('cols2',enabled.node,minutes.node,globals.node),
   e('p','Status: '+(d.spawn?'wild '+d.spawn.name+' in chat':'no wild Pokémon')+' · '+(d.raid?(d.raid.global?'Global raid':'Raid')+': '+d.raid.boss+' '+d.raid.hp+'/'+d.raid.max+' HP, '+d.raid.players+' trainers':'no raid'),'description'),
-  actions(btn('Save Pokémon settings',async()=>{await api('/api/pokemon','POST',{enabled:enabled.value(),spawn_minutes:minutes.value(),global_raids:globals.value()});notify('Pokémon settings saved');await reloadView()},'primary'),
+  actions(btn('Save Pokémon settings',async()=>{await api('/api/pokemon','POST',{enabled:enabled.value(),spawn_minutes:minutes.value(),global_raids:globals.value(),gens:genPicks.filter(x=>x.box.value()).map(x=>x.g)});notify('Pokémon settings saved');await reloadView()},'primary'),
    btn('Spawn wild Pokémon now',async()=>{await api('/api/pokemon/spawn','POST',{});notify('A wild Pokémon appeared in chat');await reloadView()}),
    btn('Start channel raid',async()=>{await api('/api/pokemon/raid','POST',{});notify('Raid started in chat');await reloadView()})));
  const help=card('Chat commands','!pokecatch [ball] · !pokeshop · !pokebuy <item> [qty] · !pokebag · !pokedex [@user] · !poketop · !pokeraid · !pokecandy <pokemon> · !pokelure · !pokehelp — Mods: !pokespawn, !pokeraidstart');
- const parts=[cfg,help];
+ const parts=[cfg,genRow,help];
  if(d.operator){
   const admin=card('Global Raids (operator)','Starts one raid boss with shared HP in every live channel that has the game and Global Raids on.'+(d.autoGlobalRaidHours?' Auto global raid every '+d.autoGlobalRaidHours+'h.':' Set POKEMON_GLOBAL_RAID_HOURS for automatic global raids.'));
   admin.append(actions(btn('Start Global Raid',async()=>{const r=await api('/api/admin/pokemon/global-raid','POST',{});notify('Global raid: '+r.boss+' in '+r.channels+' channel(s)');await reloadView()},'primary')));
   parts.push(admin);
  }
- const top=card('Top trainers in this channel');top.append(table(['Trainer','Pokédex','Caught'],d.top.map(x=>[x.login,x.uniq+'/151',x.total])));
+ const top=card('Top trainers in this channel');top.append(table(['Trainer','Pokédex','Caught'],d.top.map(x=>[x.login,x.uniq+'/'+d.dexTotal,x.total])));
  const log=card('Recent Pokémon activity');log.append(table(['When','Event','Details'],d.events.map(x=>[x.created,x.kind,x.detail])));
  return h('div','stack',...parts,top,log);
 }
