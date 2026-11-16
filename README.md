@@ -11,12 +11,12 @@ Node.js 22+, Twitch developer application, an HTTPS reverse proxy in production.
 3. Run `npm install && npm start` or `docker compose up --build -d`.
 4. Visit the web dashboard. Sign in as the streamer, then connect the **separate bot Twitch account**. Enable the bot on the dashboard.
 5. In the channel chat, the broadcaster must type `/mod YOUR_BOT_USERNAME` to grant Twitch moderator rights. Without this Twitch-granted role, bot moderation endpoints will fail. Broadcaster OAuth provides channel:bot consent for chat subscriptions but does not give moderator status.
-6. Use the custom commands dashboard; `!clip` (moderators), `!timeout username 600 reason`, `!ban username reason` (moderators), `!uptime`. Use voice control in a supported Chromium browser to say **clip it**.
+6. Use the custom commands dashboard; `!clip` (anyone by default — level and cooldown set under Voice & Clips; checks the stream is live and posts the clip link), `!timeout username 600 reason`, `!ban username reason` (moderators), `!uptime`. Use voice control in a supported Chromium browser to say **clip it**.
 
 ### Capabilities and limitations
 
 - Streamer/bot OAuth user tokens are separately encrypted at rest (AES-256-GCM); refresh tokens rotate.
-- EventSub WebSocket is used to ingest chat. Current version opens a single bot WebSocket and recreates subscriptions after reconnect; production should add resilient reconnect-url handling and subscription failure reporting.
+- EventSub WebSocket is used to ingest chat. The bot follows Twitch `session_reconnect` URLs, runs a keepalive watchdog (silent dead connections are terminated and reopened), retries with backoff, and a 60-second health check restores the socket if it ever goes missing.
 - Voice uses Web Speech API in a browser tab after explicit microphone authorisation. It is NOT an always-running desktop microphone service. Browser support, background-tab restrictions and any browser-based speech processing vary.
 - Twitch clips require a live broadcast with clipping enabled and Twitch's required user permissions. The returned edit/clip may take time to become available.
 - Unapproved URL detection is simplistic and OFF by default only if you uncheck it. Do not rely on the rule as production-grade scam detection. Add link allowlists, review logs, exclusions, and rate limits before rollout.
@@ -35,6 +35,34 @@ Node.js 22+, Twitch developer application, an HTTPS reverse proxy in production.
 5. Streamers can disable or disconnect their own channel without affecting anyone else's data or account.
 
 **Important scaling note:** This early version uses a single bot-account EventSub WebSocket and reconnects it when channel membership changes. Twitch has per-user WebSocket and per-connection subscription limits, so this must be migrated to App Access Token + EventSub webhooks or conduits, including the required broadcaster authorisations, before serving large numbers of channels. Twitch recommends cloud chatbot architecture for this scenario. Production rollout also requires better reconnect/health monitoring, channel authorisation verification and security testing.
+
+## Global commands (StreamElements-style)
+
+Toggle each one per channel under **Custom Commands → Global bot commands**.
+
+- **Info:** `!game`, `!title`, `!viewers`, `!followers`, `!subcount`, `!uptime`, `!followage`, `!accountage`, `!watchtime`, `!commands`
+- **Fun:** `!lurk` / `!unlurk` (random friendly lines; unlurk says how long you lurked), `!hug @user`, `!love @user`, `!8ball question`, `!roll` / `!roll 20` / `!roll 2d6`, `!coinflip`, `!rps rock`
+- **Viewer interactions:** `!pat`, `!boop`, `!bonk`, `!slap`, `!highfive`, `!cuddle`, `!poke`, `!wave`, `!fight` (no points), `!cookie @user` (cookie count saved per channel)
+- **Random fun:** `!ship @a @b`, `!rate thing`, `!vibecheck`, `!iq`, `!howcute`, `!rizz`, `!choose a | b | c`, `!fortune`, `!joke`, `!compliment @user`, `!wyr`, `!hydrate`, `!hypetrain` (chat joins within 2 minutes). `!ship`/`!rate` give the same answer for the same input; `!iq`/`!howcute`/`!rizz` change daily
+- **Points:** `!givepoints @user 100`. Points games are **off by default**: `!gamble 100|all|50%` (1–59 lose, 60–98 double, 99–100 triple), `!roulette`, `!slots`, `!duel @user 100` (target replies `!accept` / `!deny` within 2 minutes)
+- **Games & leaderboards:** `!trivia` (anyone can start one; first correct answer in chat within 30s wins 50 points, 60s cooldown between rounds), `!heist 100|all|50%` (**off by default**; 60s to join, each crew member escapes independently with 40–65% odds that rise with crew size, escapees double their bet, 5 min cooldown), `!topwatch`, `!topcookies`, `!watchtime`
+- **Moderator:** `!so`, `!permit @user` (one link within 60s past the URL filter), `!randomviewer`
+- **Supermod:** `!settitle`, `!setgame`, `!addpoints`, `!setpoints`
+
+Fun and points commands use a 5-second per-viewer cooldown; info commands use a 10-second per-channel cooldown. Points bets are debited atomically, so spamming cannot spend points twice.
+
+## Pokémon chat game
+
+Turn it on per channel in **Studio → Community → Pokémon Game** (off by default).
+
+- **Wild spawns:** while the channel is live, a random Pokémon from **all 1025 species (Gens 1–9)** spawns every N minutes (default 15); you can limit spawns to certain generations in the dashboard. Viewers have 90 seconds to `!pokecatch [pokeball|greatball|ultraball|masterball]`. Everyone can catch the same spawn. Rarity tiers (Common to Epic) change spawn and catch odds, and 1 in 256 spawns is ✨ shiny. Legendaries and Mythicals (94 of them) only appear in raids. Rarity comes from each species' official catch rate and evolution stage (`pokedex.json`, generated from [PokeAPI](https://github.com/PokeAPI/pokeapi) data).
+- **PokéShop:** `!pokeshop`, `!pokebuy <item> [qty]`, paid with the channel's loyalty points. Items: Poké Ball 100, Great Ball 300, Ultra Ball 600, Master Ball 15000, Rare Candy 250 (`!pokecandy <pokemon>` gives +1 level), Lure 800 (`!pokelure` spawns a Pokémon now). New trainers get 5 free Poké Balls.
+- **Collection:** `!pokebag`, `!pokedex [@user]` (x/1025, shinies, strongest Pokémon), `!poketop`, `!pokehelp`. Pokédex and bag are tied to the viewer's Twitch account, so they carry across every KitsuFlowBOT channel.
+- **Primary Pokémon & evolution:** `!pokeprimary <pokemon|#id>` picks your partner (your first catch is set automatically). It gains XP from chatting (5 XP/min), catching (+20), raid hits (+5) and raid wins (+50); Rare Candy gives +1 level. It evolves at the **real evolution level** from PokeAPI data, e.g. Bulbasaur at 16 and Ivysaur at 32. Stone, friendship and other special evolutions use an **Evo Stone** (1500) with `!pokeevolve [into]`, e.g. `!pokeevolve umbreon` for Eevee. Trade evolutions (Kadabra, Machoke, Haunter...) happen when the Pokémon is traded. `!pokebox [page]` lists your Pokémon with their `#id`.
+- **PokéMarket:** `!pokesell <pokemon|#id> <price>` lists a Pokémon in that channel for loyalty points (max 10 listings each; you can't list your primary). `!pokemarket [page|pokemon]` browses the cheapest first; buy with `!pokemarket buy <id>` (or `!pokebuy #id`), cancel with `!pokemarket cancel <id>` (seller or mods). Points go straight to the seller.
+- **Direct trades:** `!poketrade @user <your pokemon|#id> for <their pokemon|#id>`; they reply `!poketrade accept` / `deny` within 2 minutes.
+- **Raids:** mods use `!pokeraidstart`, or the dashboard button, for a channel raid (1500 HP). **Global Raids** (6000 shared HP) run at once in every live channel that has the game and *Join Global Raids* on. The operator starts them from the dashboard or with `!pokeraidstart global`, or automatically with `POKEMON_GLOBAL_RAID_HOURS`. `!pokeraid` attacks every 15s; damage scales with your strongest Pokémon's level and rarity, with 10% crits. If the boss falls within 10 minutes, everyone gets points (150 local / 300 global), the top damage dealer catches the boss, and everyone else gets a 35–50% catch chance.
+- Mods can force a spawn with `!pokespawn`. Spawns and raids are kept in memory, so a restart clears any active ones. Catches, bags and the Pokédex are saved in SQLite.
 
 ## Streamer engagement modules
 

@@ -16,6 +16,9 @@ import {installStreamAlerts} from './stream-alerts.js';
 import {installCreatorGoals} from './creator-goals.js';
 import {installVoice} from './voice.js';
 import {installVoiceCompanion} from './voice-companion.js';
+import {installChatClip} from './chat-clip.js';
+import {installPokemon} from './pokemon-game.js';
+import {EXTRA_COMMANDS,createExtraCommands} from './global-commands-extra.js';
 import {installAccess} from './access.js';
 import {installPlatforms} from './platform-integrations.js';
 import {installRelay} from './chat-relay.js';
@@ -38,10 +41,16 @@ const enc=s=>{const iv=crypto.randomBytes(12),c=crypto.createCipheriv('aes-256-g
 const dec=s=>{const b=Buffer.from(s,'base64'),d=crypto.createDecipheriv('aes-256-gcm',KEY,b.subarray(0,12));d.setAuthTag(b.subarray(12,28));return Buffer.concat([d.update(b.subarray(28)),d.final()]).toString()};
 const log=(id,event,detail)=>db.prepare('INSERT INTO logs(channel,event,detail) VALUES(?,?,?)').run(id,event,String(detail).slice(0,500));
 const getAccount=id=>db.prepare('SELECT * FROM accounts WHERE id=?').get(id);
+// Share one in-flight refresh per account: parallel refreshes of the same refresh token can
+// invalidate it, which used to leave the bot unable to reconnect until re-authorised.
+const refreshing=new Map();
 async function token(id){let a=getAccount(id);if(!a)throw Error('Account not connected');
 if(a.expires>Date.now()+120000)return dec(a.access);
+if(refreshing.has(id))return refreshing.get(id);
+const job=refreshToken(id,a).finally(()=>refreshing.delete(id));refreshing.set(id,job);return job}
+async function refreshToken(id,a){
 const p=new URLSearchParams({client_id:CID,client_secret:SECRET,grant_type:'refresh_token',refresh_token:dec(a.refresh)});
-const r=await fetch('https://id.twitch.tv/oauth2/token',{method:'POST',body:p});if(!r.ok)throw Error('Twitch refresh failed: '+r.status);
+const r=await fetch('https://id.twitch.tv/oauth2/token',{method:'POST',body:p});if(!r.ok){const detail='Twitch refresh failed: '+r.status;log(id,'token-refresh-error',detail+' '+(await r.text().catch(()=>'')).slice(0,200));throw Error(detail)}
 const t=await r.json();db.prepare('UPDATE accounts SET access=?,refresh=?,expires=? WHERE id=?').run(enc(t.access_token),enc(t.refresh_token||dec(a.refresh)),Date.now()+t.expires_in*1000,id);return t.access_token}
 async function api(id,route,method='GET',body){const t=await token(id);const r=await fetch('https://api.twitch.tv/helix/'+route,{method,headers:{'Client-Id':CID,Authorization:'Bearer '+t,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});const x=await r.text();if(!r.ok)throw Error('Twitch '+r.status+': '+x.slice(0,300));return x?JSON.parse(x):{}}
 const botId=()=>db.prepare("SELECT value FROM config WHERE key='bot_id'").get()?.value;
@@ -78,12 +87,13 @@ const GLOBAL_COMMANDS={
  addpoints:{level:'supermod',description:'Give loyalty points to a viewer or active chatters'},
  setpoints:{level:'supermod',description:'Set a viewer\'s loyalty points'},
  setgame:{level:'supermod',description:'Change stream category/game'},
- settitle:{level:'supermod',description:'Change stream title'}
+ settitle:{level:'supermod',description:'Change stream title'},
+ ...EXTRA_COMMANDS
 };
 db.exec(`CREATE TABLE IF NOT EXISTS global_command_settings(channel TEXT NOT NULL,name TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(channel,name));
 CREATE TABLE IF NOT EXISTS channel_supermods(channel TEXT NOT NULL,user_id TEXT NOT NULL,login TEXT NOT NULL,PRIMARY KEY(channel,user_id));`);
-const isGlobalEnabled=(channel,name)=>{const row=db.prepare('SELECT enabled FROM global_command_settings WHERE channel=? AND name=?').get(channel,name);return row?row.enabled===1:GLOBAL_COMMANDS[name]?.level!=='supermod'};
-const globalListing=channel=>Object.entries(GLOBAL_COMMANDS).map(([name,item])=>({name,...item,enabled:isGlobalEnabled(channel,name)}));
+const isGlobalEnabled=(channel,name)=>{if(name==='accept'||name==='deny')name='duel';const row=db.prepare('SELECT enabled FROM global_command_settings WHERE channel=? AND name=?').get(channel,name);return row?row.enabled===1:GLOBAL_COMMANDS[name]?.level!=='supermod'&&!GLOBAL_COMMANDS[name]?.defaultOff};
+const globalListing=channel=>Object.entries(GLOBAL_COMMANDS).filter(([,item])=>!item.hidden).map(([name,item])=>({name,...item,enabled:isGlobalEnabled(channel,name)}));
 const duration=ms=>{let seconds=Math.max(0,Math.floor(ms/1000));if(!seconds)return '0 seconds';const out=[];for(const [n,label] of [[31536000,'year'],[86400,'day'],[3600,'hour'],[60,'minute'],[1,'second']]){const value=Math.floor(seconds/n);if(value){out.push(value+' '+label+(value===1?'':'s'));seconds-=value*n}if(out.length>=2)break}return out.join(' ')};
 const resolveViewer=async(login,fallback)=>{if(!login)return fallback;const account=await api(botId(),'users?login='+encodeURIComponent(login.replace(/^@/,'')));return account.data?.[0]||null};
 const numberArg=value=>{const n=Number(value);return Number.isSafeInteger(n)&&n>=0&&n<=1000000?n:null};
@@ -94,6 +104,10 @@ const cooldowns=new Map();
 const recentChatters=new Map();
 const allowed=(level,e)=>level==='everyone'||e.badges?.some(b=>b.set_id==='broadcaster'||b.set_id==='moderator')||(level==='subscriber'&&e.badges?.some(b=>b.set_id==='subscriber'));
 const sharedCommandSeen=new Map();
+const linkPermits=new Map();
+let extraCommands=null;
+const extras=()=>extraCommands||=createExtraCommands({db,api,say,resolveViewer,recentChatters,permits:linkPermits,log});
+const runExtra=(name,ctx)=>extras()(name,ctx);
 async function message(e){
  // EventSub broadcaster_user_id is the receiving chat; source_broadcaster_user_id
  // identifies the originating chat when Twitch mirrors messages in Shared Chat.
@@ -133,22 +147,29 @@ if(bad&&scamSettings(ch.id).enabled===1&&!e.badges?.some(b=>b.set_id==='broadcas
  try{await moderate(ch.id,e.chatter_user_id,action==='timeout'?1:null,reason);log(ch.id,'scam-'+action,e.chatter_user_login+': '+reason)}catch(err){log(ch.id,'scam-ban-error',err.message)}
  return;
 }
+if(rawText.trim())void pokemon.onChat(ch,e).catch(err=>log(ch.id,'pokemon-xp-error',err.message));
 void relay.relay(ch.id,'twitch',e.chatter_user_login,rawText,{isBot:false,fragments:e.message?.fragments||[]}).catch(err=>log(ch.id,'relay-error',err.message));
 const value=(e.message?.text||'').trim(),parts=value.split(/\s+/),cmd=parts[0]?.toLowerCase(),isMod=e.badges?.some(b=>b.set_id==='moderator'||b.set_id==='broadcaster');
-if(ch.links&&!isMod&&/https?:\/\/|(?:[a-z0-9-]+\.)+(?:com|net|org|xyz|click|shop|ru|co\.uk)\b/i.test(value)){try{await moderate(ch.id,e.chatter_user_id,60,'Unapproved URL');log(ch.id,'timeout',e.chatter_user_login+' URL')}catch(err){log(ch.id,'error',err.message)}return}
+const permitKey=ch.id+':'+e.chatter_user_id,permitted=(linkPermits.get(permitKey)||0)>Date.now();
+const hasLink=/https?:\/\/|(?:[a-z0-9-]+\.)+(?:com|net|org|xyz|click|shop|ru|co\.uk)\b/i.test(value);
+if(permitted&&hasLink)linkPermits.delete(permitKey);
+if(ch.links&&!isMod&&!permitted&&hasLink){try{await moderate(ch.id,e.chatter_user_id,60,'Unapproved URL');log(ch.id,'timeout',e.chatter_user_login+' URL')}catch(err){log(ch.id,'error',err.message)}return}
 try{
 if(await engagement.onMessage(ch,e,value,parts,isMod))return;
 if(await creator.onMessage(ch,e,value,parts,isMod))return;
-if(!cmd?.startsWith('!'))return;
+if(await pokemon.onMessage(ch,e,parts,isMod))return;
+if(!cmd?.startsWith('!')){if(isGlobalEnabled(ch.id,'trivia'))await extras().onChat(ch,e,value);return}
 const globalName=cmd==='!command'?'commands':cmd.slice(1);
 if(GLOBAL_COMMANDS[globalName]&&isGlobalEnabled(ch.id,globalName)){
  const isOwner=e.chatter_user_id===ch.id;
  const supermod=isOwner||Boolean(db.prepare('SELECT 1 FROM channel_supermods WHERE channel=? AND user_id=?').get(ch.id,e.chatter_user_id));
  const required=GLOBAL_COMMANDS[globalName].level;
  if(required==='moderator'&&!isMod||required==='supermod'&&!supermod)return;
- const key=ch.id+':global:'+globalName,now=Date.now();
+ const perUser=GLOBAL_COMMANDS[globalName].perUser;
+ const key=ch.id+':global:'+globalName+(perUser?':'+e.chatter_user_id:''),now=Date.now();
  if(now<(cooldowns.get(key)||0))return;
- cooldowns.set(key,now+10000);
+ cooldowns.set(key,now+(perUser?5000:10000));
+ if(EXTRA_COMMANDS[globalName]){await runExtra(globalName,{ch,e,parts});return}
  const requestedLogin=(parts[1]||'').replace(/^@/,'');
  if(globalName==='commands'){await say(ch.id,'Commands for '+ch.login+': '+BASE+'/commands/'+encodeURIComponent(ch.login));return}
  if(globalName==='accountage'||globalName==='followage'||globalName==='watchtime'){
@@ -208,7 +229,7 @@ if(GLOBAL_COMMANDS[globalName]&&isGlobalEnabled(ch.id,globalName)){
  }
 }
 
-if(cmd==='!clip'){if(!isMod)return;try{const c=await clip(ch.id);await say(ch.id,'Clip requested (up to 60 seconds): https://clips.twitch.tv/'+c.id)}catch(err){log(ch.id,'clip-error',err.message);await say(ch.id,'Clip failed. Ensure the shared bot is connected with clips:edit and the channel is live.')}return}
+if(cmd==='!clip'){await chatClip.onCommand(ch,e);return}
 if((cmd==='!ban'||cmd==='!timeout')&&isMod){const target=parts[1];if(!target)return;const uid=await lookup(target);const seconds=cmd==='!timeout'?Math.max(1,Math.min(1209600,Number(parts[2])||600)):null;await moderate(ch.id,uid,seconds,parts.slice(cmd==='!timeout'?3:2).join(' ')||'Moderator command');log(ch.id,cmd,target);await say(ch.id,target+' '+(seconds?'timed out':'banned'));return}
 if(cmd==='!uptime'){const s=await api(ch.id,'streams?user_id='+ch.id);await say(ch.id,s.data?.[0]?'Live since '+new Date(s.data[0].started_at).toLocaleString():'Stream is offline');return}
 const custom=db.prepare('SELECT * FROM commands WHERE channel=? AND name=?').get(ch.id,cmd.slice(1));if(!custom||engagement.reserved.has(cmd.slice(1))||!allowed(custom.level,e))return;
@@ -216,19 +237,35 @@ const key=ch.id+':'+custom.name,now=Date.now();if(now<(cooldowns.get(key)||0))re
 await say(ch.id,custom.response.replaceAll('{user}',e.chatter_user_name).replaceAll('{channel}',ch.login).replaceAll('{args}',parts.slice(1).join(' ')));
 }catch(err){log(ch.id,'error',err.message)}
 }
+// EventSub keepalive watchdog. Twitch sends session_keepalive messages; if none arrive within
+// keepalive_timeout_seconds the TCP link is dead even though 'close' may never fire (NAT/proxy
+// drops, laptop sleep, Docker network blips). Terminating forces the normal reconnect path.
+function keepaliveWatchdog(ws,label){
+ let limit=30000,timer=null;
+ const arm=()=>{clearTimeout(timer);timer=setTimeout(()=>{console.warn(label+': no EventSub keepalive for '+Math.round(limit/1000)+'s, forcing reconnect');try{ws.terminate()}catch{}},limit);timer.unref?.()};
+ ws.on('open',arm);ws.on('message',arm);ws.on('ping',arm);ws.on('close',()=>clearTimeout(timer));
+ return {setTimeoutSeconds(sec){const n=Number(sec);if(n>0)limit=(n+10)*1000;arm()}};
+}
 const engagementSockets=new Map();
+const engagementFailures=new Map();
 function connectEngagement(channel){
  if(!getAccount(channel))return;
  const previous=engagementSockets.get(channel);if(previous)previous.close();
- const ws=new WebSocket('wss://eventsub.wss.twitch.tv/ws');
+ const ws=new WebSocket('wss://eventsub.wss.twitch.tv/ws',{handshakeTimeout:15000});
  engagementSockets.set(channel,ws);
+ const watchdog=keepaliveWatchdog(ws,'Engagement '+channel);
  ws.on('message',async raw=>{
   try{
    const d=JSON.parse(String(raw)),type=d.metadata?.message_type;
    if(type==='notification'){
     const event=d.payload?.event||{},name=d.metadata.subscription_type;
     streamActivity.emit(channel,'twitch',name,event.user_name||event.from_broadcaster_user_name||event.to_broadcaster_user_name||'',event.message?.text||String(name==='channel.subscription.gift'?(event.total||1):(event.bits||event.viewers||event.tier||'')),d.metadata.message_id);
+   }else if(type==='session_reconnect'){
+    // Simplest safe handling: open a fresh session and resubscribe.
+    connectEngagement(channel);return;
    }else if(type==='session_welcome'){
+    watchdog.setTimeoutSeconds(d.payload.session.keepalive_timeout_seconds);
+    engagementFailures.set(channel,0);
     const sid=d.payload.session.id;
     const config=[
      ['channel.follow','2',{broadcaster_user_id:channel,moderator_user_id:channel}],
@@ -260,21 +297,23 @@ function connectEngagement(channel){
    }
   }catch(err){log(channel,'twitch-engagement-error',err.message)}
  });
- ws.on('close',()=>{if(engagementSockets.get(channel)===ws){const handle=setTimeout(()=>connectEngagement(channel),10000);handle.unref?.()}});
+ ws.on('close',(code)=>{if(engagementSockets.get(channel)===ws){const n=engagementFailures.get(channel)||0;engagementFailures.set(channel,n+1);const delay=Math.min(120000,10000*2**Math.min(n,4));log(channel,'twitch-engagement-reconnect','Socket closed ('+code+'), retrying in '+delay/1000+'s');const handle=setTimeout(()=>{if(engagementSockets.get(channel)===ws)connectEngagement(channel)},delay);handle.unref?.()}});
  ws.on('error',err=>log(channel,'twitch-engagement-ws-error',err.message));
 }
 const sockets=new Map();
 const chatHealth=new Map();
-let chatGeneration=0;
+let chatGeneration=0,chatFailures=0,chatRetry=null;
 async function connectChat(){
  const id=botId();if(!id)return;
+ clearTimeout(chatRetry);chatRetry=null;
  const generation=++chatGeneration;
  const previous=sockets.get('bot');
  if(previous){sockets.delete('bot');previous.close()}
  function openSocket(url,isReconnect=false){
   if(generation!==chatGeneration)return;
-  const ws=new WebSocket(url);
+  const ws=new WebSocket(url,{handshakeTimeout:15000});
   sockets.set('bot',ws);
+  const watchdog=keepaliveWatchdog(ws,'Chat EventSub');
   ws.on('message',async raw=>{
    try{
     const d=JSON.parse(String(raw)),type=d.metadata?.message_type;
@@ -297,6 +336,8 @@ async function connectChat(){
      return;
     }
     if(type==='session_welcome'){
+     watchdog.setTimeoutSeconds(d.payload.session.keepalive_timeout_seconds);
+     chatFailures=0;
      if(isReconnect)return; // Twitch preserves existing EventSub subscriptions across reconnect URLs.
      const sessionId=d.payload.session.id;
      for(const ch of db.prepare('SELECT id FROM channels WHERE enabled=1').all()){
@@ -313,11 +354,13 @@ async function connectChat(){
     }
    }catch(err){console.error('Chat EventSub:',err.message)}
   });
-  ws.on('close',()=>{
+  ws.on('close',(code,reason)=>{
    if(generation===chatGeneration&&sockets.get('bot')===ws){
     sockets.delete('bot');
-    const handle=setTimeout(()=>{if(generation===chatGeneration)void connectChat()},5000);
-    handle.unref?.();
+    const delay=Math.min(60000,5000*2**Math.min(chatFailures++,4));
+    console.warn('Chat EventSub closed ('+code+(reason?.length?' '+reason:'')+'), reconnecting in '+delay/1000+'s');
+    chatRetry=setTimeout(()=>{chatRetry=null;if(generation===chatGeneration)void connectChat().catch(err=>console.error('Chat reconnect:',err.message))},delay);
+    chatRetry.unref?.();
    }
   });
   ws.on('error',err=>console.error('Chat EventSub socket:',err.message));
@@ -452,7 +495,7 @@ app.get('/api/chat-diagnostics',withUser,access.channelOnly('owner'),(req,res)=>
 app.get('/api/state',withUser,(req,res)=>{const ch=db.prepare('SELECT * FROM channels WHERE id=?').get(req.channelId);res.json({channel:ch,role:access.role(req.session.uid,req.channelId),isOperator:isOperator(req.session.uid),bot:(()=>{const b=getAccount(botId());return b?{id:b.id,login:b.login}:null})(),commands:db.prepare('SELECT * FROM commands WHERE channel=? ORDER BY name').all(req.channelId),logs:db.prepare('SELECT * FROM logs WHERE channel=? ORDER BY id DESC LIMIT 30').all(req.channelId)})});
 app.post('/api/settings',withUser,access.channelOnly('owner'),csrf,(req,res)=>{if(req.body.enabled===true&&!botId())return res.status(409).json({error:'Shared bot is not connected yet'});db.prepare('UPDATE channels SET enabled=?,links=? WHERE id=?').run(req.body.enabled===true?1:0,req.body.links===true?1:0,req.channelId);connectChat();res.json({ok:true})});
 app.post('/api/channel/disconnect',withUser,access.channelOnly('owner'),csrf,(req,res)=>{const id=req.channelId;db.prepare('UPDATE channels SET enabled=0 WHERE id=?').run(id);db.prepare('DELETE FROM accounts WHERE id=? AND id != ?').run(id,botId()||'');connectChat();req.session.destroy(()=>res.json({ok:true}))});
-app.post('/api/commands',withUser,access.channelOnly('editor'),csrf,(req,res)=>{const name=String(req.body.name||'').toLowerCase().replace(/^!/,'');const response=String(req.body.response||'');if(!/^[a-z0-9_]{1,32}$/.test(name)||['clip','ban','timeout','uptime','points','top','addquote','quote','counter',...Object.keys(GLOBAL_COMMANDS)].includes(name)||!response||response.length>450||!['everyone','subscriber','moderator'].includes(req.body.level))return res.status(400).json({error:'Invalid command'});db.prepare('INSERT INTO commands(channel,name,response,cooldown,level) VALUES(?,?,?,?,?) ON CONFLICT(channel,name) DO UPDATE SET response=excluded.response,cooldown=excluded.cooldown,level=excluded.level').run(req.channelId,name,response,Math.max(0,Math.min(3600,Number(req.body.cooldown)||0)),req.body.level);res.json({ok:true})});
+app.post('/api/commands',withUser,access.channelOnly('editor'),csrf,(req,res)=>{const name=String(req.body.name||'').toLowerCase().replace(/^!/,'');const response=String(req.body.response||'');if(!/^[a-z0-9_]{1,32}$/.test(name)||['clip','ban','timeout','uptime','points','top','addquote','quote','counter',...Object.keys(GLOBAL_COMMANDS),...pokemon.reserved].includes(name)||!response||response.length>450||!['everyone','subscriber','moderator'].includes(req.body.level))return res.status(400).json({error:'Invalid command'});db.prepare('INSERT INTO commands(channel,name,response,cooldown,level) VALUES(?,?,?,?,?) ON CONFLICT(channel,name) DO UPDATE SET response=excluded.response,cooldown=excluded.cooldown,level=excluded.level').run(req.channelId,name,response,Math.max(0,Math.min(3600,Number(req.body.cooldown)||0)),req.body.level);res.json({ok:true})});
 app.delete('/api/commands/:name',withUser,access.channelOnly('editor'),csrf,(req,res)=>{db.prepare('DELETE FROM commands WHERE channel=? AND name=?').run(req.channelId,req.params.name);res.json({ok:true})});
 app.post('/api/clip',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{const c=await clip(req.channelId);res.json(c)}));
 app.post('/api/moderate',withUser,access.channelOnly('bot_supervisor'),csrf,safe(async(req,res)=>{if(!['ban','timeout'].includes(req.body.action))throw Error('Invalid action');const uid=await lookup(String(req.body.user||''));const seconds=req.body.action==='timeout'?Math.max(1,Math.min(1209600,Number(req.body.seconds)||600)):null;await moderate(req.channelId,uid,seconds,'Dashboard moderation');log(req.channelId,req.body.action,req.body.user);res.json({ok:true})}));
@@ -460,6 +503,8 @@ const engagement=installEngagement({app,db,withUser,csrf,safe,say,moderate,log,a
 const creator=installCreator({app,db,withUser,csrf,safe,log,say,access});
 installVoice({app,db,withUser,csrf,access,api,clip,log,say});
 installVoiceCompanion({app,db,withUser,csrf,access,api,clip,log,say});
+const pokemon=installPokemon({app,db,withUser,csrf,access,api,say,log,isOperator,botId});
+const chatClip=installChatClip({app,db,withUser,csrf,access,api,clip,log,say});
 const platformRuntime=installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,relay,streamActivity,twitchApi:api});
 creatorTools.setProviderStatus(channel=>{
  const bot=sockets.get('bot');
@@ -468,4 +513,7 @@ creatorTools.setProviderStatus(channel=>{
 app.get('/dashboard',(req,res)=>{res.set('Cache-Control','no-store, max-age=0');return req.session.uid?res.sendFile(path.resolve('public/dashboard.html')):res.redirect('/login')});
 app.get('/login',(req,res)=>req.session.uid?res.redirect('/dashboard'):res.sendFile(path.resolve('public/login.html')));
 app.get('/api/build-info',(req,res)=>res.set('Cache-Control','no-store').json({version:process.env.GITHUB_SHA||process.env.APP_VERSION||'local',providers:['twitch','kick','vpzone']}));
-app.use(express.static('public',{index:'index.html',redirect:false,setHeaders:(res,file)=>{if(/(?:studio\.js|dashboard\.html)$/.test(file))res.setHeader('Cache-Control','no-store, max-age=0')}}));app.listen(PORT,()=>console.log('KitsuFlowBOT on '+PORT));connectChat();for(const row of db.prepare('SELECT id FROM channels').all())connectEngagement(row.id);
+app.use(express.static('public',{index:'index.html',redirect:false,setHeaders:(res,file)=>{if(/(?:studio\.js|dashboard\.html)$/.test(file))res.setHeader('Cache-Control','no-store, max-age=0')}}));app.listen(PORT,()=>console.log('KitsuFlowBOT on '+PORT));connectChat();
+// Safety net: if the bot socket is gone and no retry is scheduled, bring it back.
+setInterval(()=>{const ws=sockets.get('bot');if(botId()&&!chatRetry&&(!ws||ws.readyState===WebSocket.CLOSED)){console.warn('Chat EventSub health check: socket missing, reconnecting');void connectChat().catch(err=>console.error('Chat reconnect:',err.message))}},60000).unref?.();
+process.on('unhandledRejection',err=>console.error('Unhandled rejection:',err?.message||err));for(const row of db.prepare('SELECT id FROM channels').all())connectEngagement(row.id);

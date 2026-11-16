@@ -1,9 +1,9 @@
 (()=>{'use strict';
 const $=s=>document.querySelector(s),e=(tag,text,cls)=>{const x=document.createElement(tag);if(text!==undefined)x.textContent=text;if(cls)x.className=cls;return x}, h=(tag,cls,...children)=>{const x=e(tag,undefined,cls);for(const y of children)if(y!=null)x.append(typeof y==='string'?document.createTextNode(y):y);return x};
 let state=null,access=null,creator=null,engagement=null,page='overview';
-const groups=[['WORKSPACE',[['overview','◫','Overview'],['activity','◷','Activity Feed'],['reports','▥','Data & Reports'],['goals','◎','Creator Goals']]],['BOT MANAGEMENT',[['commands','⌘','Custom Commands'],['timers','◴','Timers'],['moderation','◇','Moderation'],['voice','◉','Voice & Clips']]],['COMMUNITY',[['loyalty','✧','Loyalty & Points'],['campaigns','♢','Giveaways & Contests'],['store','▣','Stream Store'],['queue','☷','Viewer Queue'],['quotes','❞','Quotes & Counters']]],['STREAM TOOLS',[['overlays','▤','Overlay Studio'],['metadata','✦','Stream Title & Game'],['multichat','▣','Multi-chat & TTS'],['relay','⇄','Chat Relay'],['subathon','⏳','Subathon Timer'],['streamboss','⚔','Stream Boss'],['support','♡','Alerts & Donations'],['connections','⇄','Connections']]],['SETTINGS',[['channel','⚙','Channel Settings'],['team','♙','Team & Invites'],['admin','♛','Admin Panel']]]];
+const groups=[['WORKSPACE',[['overview','◫','Overview'],['activity','◷','Activity Feed'],['reports','▥','Data & Reports'],['goals','◎','Creator Goals']]],['BOT MANAGEMENT',[['commands','⌘','Custom Commands'],['timers','◴','Timers'],['moderation','◇','Moderation'],['voice','◉','Voice & Clips']]],['COMMUNITY',[['loyalty','✧','Loyalty & Points'],['campaigns','♢','Giveaways & Contests'],['store','▣','Stream Store'],['queue','☷','Viewer Queue'],['quotes','❞','Quotes & Counters'],['pokemon','◓','Pokémon Game']]],['STREAM TOOLS',[['overlays','▤','Overlay Studio'],['metadata','✦','Stream Title & Game'],['multichat','▣','Multi-chat & TTS'],['relay','⇄','Chat Relay'],['subathon','⏳','Subathon Timer'],['streamboss','⚔','Stream Boss'],['support','♡','Alerts & Donations'],['connections','⇄','Connections']]],['SETTINGS',[['channel','⚙','Channel Settings'],['team','♙','Team & Invites'],['admin','♛','Admin Panel']]]];
 const ownerPages=new Set(['connections','team','channel','overlays','subathon','streamboss','support','goals','metadata','multichat','relay']);
-const descriptions={overview:'A clear view of everything happening across your channel.',activity:'Recent messages, moderation and bot activity.',reports:'Understand loyalty activity, redemptions and channel engagement.',commands:'Create and manage the commands your viewers can use.',timers:'Schedule automatic Twitch chat announcements.',moderation:'Keep your community safe with moderation controls.',voice:'Create clips with your voice or a single click.',loyalty:'Configure loyalty rewards and view community standings.',campaigns:'Run community giveaways and draw winners.',store:'Manage redeemable loyalty-point rewards.',queue:'Organise who plays or joins you next.',quotes:'Capture favourite moments and manage counters.',overlays:'Create OBS browser sources for your stream.',subathon:'Run a cross-platform subathon with automatic time rewards and a custom OBS countdown.',streamboss:'Customisable standalone Stream Boss with health, event damage and an OBS overlay.',support:'Configure OBS alerts, donation services, and verified membership webhooks.',goals:'Create custom targets and track progress automatically.',metadata:'Set stream titles and game categories, with AI suggestions.',multichat:'Manage OBS multi-chat and TTS.',relay:'Manage cross-platform relay and diagnostics.',connections:'View broadcaster and shared public bot status.',channel:'Manage your own channel and security credentials.',team:'Invite editors and trusted moderators.',admin:'Configure and monitor the public bot for all channels.'};
+const descriptions={overview:'A clear view of everything happening across your channel.',activity:'Recent messages, moderation and bot activity.',reports:'Understand loyalty activity, redemptions and channel engagement.',commands:'Create and manage the commands your viewers can use.',timers:'Schedule automatic Twitch chat announcements.',moderation:'Keep your community safe with moderation controls.',voice:'Create clips with your voice or a single click.',loyalty:'Configure loyalty rewards and view community standings.',campaigns:'Run community giveaways and draw winners.',store:'Manage redeemable loyalty-point rewards.',queue:'Organise who plays or joins you next.',quotes:'Capture favourite moments and manage counters.',pokemon:'Wild spawns, PokéShop, Pokédex and raids for your chat.',overlays:'Create OBS browser sources for your stream.',subathon:'Run a cross-platform subathon with automatic time rewards and a custom OBS countdown.',streamboss:'Customisable standalone Stream Boss with health, event damage and an OBS overlay.',support:'Configure OBS alerts, donation services, and verified membership webhooks.',goals:'Create custom targets and track progress automatically.',metadata:'Set stream titles and game categories, with AI suggestions.',multichat:'Manage OBS multi-chat and TTS.',relay:'Manage cross-platform relay and diagnostics.',connections:'View broadcaster and shared public bot status.',channel:'Manage your own channel and security credentials.',team:'Invite editors and trusted moderators.',admin:'Configure and monitor the public bot for all channels.'};
 function notify(text){$('#notice').textContent=text;setTimeout(()=>{if($('#notice').textContent===text)$('#notice').textContent=''},6500)}
 async function api(path,method='GET',body){const r=await fetch(path,{method,headers:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});let x;try{x=await r.json()}catch{x={error:'Unexpected server response'}}if(!r.ok)throw Error(x.error||'Request failed');return x}
 const error=fn=>async(...args)=>{try{return await fn(...args)}catch(ex){notify(ex.message)}};
@@ -155,6 +155,32 @@ async function moderation(){
  form('Manual moderation',[['user','Twitch username'],['action','Action','options',['timeout','ban']],['seconds','Timeout length in seconds','number',600]],'Apply action',async x=>{if(!confirm('Moderate @'+x.user+'?'))return;await api('/api/moderate','POST',x)})),
  h('section','card',e('h2','Configured word filters'),list(engagement.words,x=>x.word+' → '+x.action,x=>api('/api/engagement/word/'+encodeURIComponent(x.word),'DELETE'))));
 }
+async function pokemon(){
+ const d=await api('/api/pokemon'),s=d.settings;
+ const cfg=card('Pokémon chat game','Wild Pokémon spawn in chat while you are live. Viewers catch them with balls bought from the PokéShop using this channel\'s loyalty points. Pokédex and bags follow viewers across every KitsuFlowBOT channel.');
+ const enabled=input('Enable the Pokémon game',s.enabled,'checkbox');
+ const minutes=input('Spawn a wild Pokémon every (minutes)',s.spawn_minutes,'number');
+ const globals=input('Join Global Raids',s.global_raids,'checkbox');
+ const genPicks=d.allGens.map(g=>({g,box:input('Gen '+g,s.gens.includes(g),'checkbox')}));
+ const genRow=card('Spawn generations','Choose which generations appear as wild spawns and channel raid bosses ('+d.dexTotal+' Pokémon total). Global raids always use every generation.');
+ genRow.append(grid('cols2',...genPicks.map(x=>x.box.node)));
+ cfg.append(grid('cols2',enabled.node,minutes.node,globals.node),
+  e('p','Status: '+(d.spawn?'wild '+d.spawn.name+' in chat':'no wild Pokémon')+' · '+(d.raid?(d.raid.global?'Global raid':'Raid')+': '+d.raid.boss+' '+d.raid.hp+'/'+d.raid.max+' HP, '+d.raid.players+' trainers':'no raid'),'description'),
+  actions(btn('Save Pokémon settings',async()=>{await api('/api/pokemon','POST',{enabled:enabled.value(),spawn_minutes:minutes.value(),global_raids:globals.value(),gens:genPicks.filter(x=>x.box.value()).map(x=>x.g)});notify('Pokémon settings saved');await reloadView()},'primary'),
+   btn('Spawn wild Pokémon now',async()=>{await api('/api/pokemon/spawn','POST',{});notify('A wild Pokémon appeared in chat');await reloadView()}),
+   btn('Start channel raid',async()=>{await api('/api/pokemon/raid','POST',{});notify('Raid started in chat');await reloadView()})));
+ const help=card('Chat commands','Catch: !pokecatch [ball] · !pokelure · Shop: !pokeshop · !pokebuy <item> [qty] · !pokebag · Collection: !pokebox · !pokedex [@user] · !poketop · Training: !pokeprimary <pokemon|#id> (gains XP from chatting, catching and raids; evolves at the right level) · !pokecandy · !pokeevolve [into] · Trading: !pokemarket [page|pokemon] · !pokesell <pokemon|#id> <price> · !pokemarket buy|cancel <id> · !poketrade @user <mine> for <theirs> · Raids: !pokeraid — Mods: !pokespawn, !pokeraidstart');
+ const market=card('PokéMarket listings','Pokémon viewers are selling in this channel for loyalty points.');market.append(table(['#','Pokémon','Price','Seller'],(d.market||[]).map(x=>['#'+x.id,x.pokemon,x.price,x.seller])));
+ const parts=[cfg,genRow,help];
+ if(d.operator){
+  const admin=card('Global Raids (operator)','Starts one raid boss with shared HP in every live channel that has the game and Global Raids on.'+(d.autoGlobalRaidHours?' Auto global raid every '+d.autoGlobalRaidHours+'h.':' Set POKEMON_GLOBAL_RAID_HOURS for automatic global raids.'));
+  admin.append(actions(btn('Start Global Raid',async()=>{const r=await api('/api/admin/pokemon/global-raid','POST',{});notify('Global raid: '+r.boss+' in '+r.channels+' channel(s)');await reloadView()},'primary')));
+  parts.push(admin);
+ }
+ const top=card('Top trainers in this channel');top.append(table(['Trainer','Pokédex','Caught'],d.top.map(x=>[x.login,x.uniq+'/'+d.dexTotal,x.total])));
+ const log=card('Recent Pokémon activity');log.append(table(['When','Event','Details'],d.events.map(x=>[x.created,x.kind,x.detail])));
+ return h('div','stack',...parts,market,top,log);
+}
 async function voice(){
  const alpha=card('Desktop companion — Alpha / Work in progress','The Desktop app is in Alpha. Please expect issues and bugs, and report problems on GitHub Issues.');
  alpha.append(actions(link('Report an issue on GitHub ↗','https://github.com/NekoSuneProjects/KitsuFlowBOT/issues/new')));
@@ -172,6 +198,16 @@ async function voice(){
  btn('Create clip now',async()=>{const x=await api('/api/clip','POST');notify('Clip created: '+x.id)})));
  const history=card('Recent voice clips','Results of phrases detected from stream audio.');
  history.append(table(['When','Phrase','Clip'],voiceData.events.map(x=>[x.created,x.phrase,x.clip_id||'Failed'])));
+ const clipData=await api('/api/clip/settings');
+ const cs=clipData.settings;
+ const chatClip=card('Chat !clip command','Viewers type !clip in Twitch chat to clip the last 60 seconds. The bot checks the stream is live, applies a shared cooldown and posts the clip link.');
+ const clipEnabled=input('Enable !clip in chat',cs.enabled,'checkbox');
+ const clipLevel=input('Who can use !clip','', 'select');
+ for(const level of clipData.levels){const o=e('option',level==='everyone'?'Everyone':level==='vip'?'VIPs + mods':level==='subscriber'?'Subscribers, VIPs + mods':'Moderators only');o.value=level;clipLevel.el.append(o)}clipLevel.el.value=cs.level;
+ const clipCooldown=input('Cooldown between clips (seconds)',cs.cooldown,'number');
+ chatClip.append(grid('cols2',clipEnabled.node,clipLevel.node,clipCooldown.node),actions(btn('Save !clip settings',async()=>{await api('/api/clip/settings','POST',{enabled:clipEnabled.value(),level:clipLevel.value(),cooldown:clipCooldown.value()});notify('!clip settings saved');await reloadView()},'primary')));
+ const clipHistory=card('Recent chat clips','Clips requested with !clip in chat.');
+ clipHistory.append(table(['When','Viewer','Result','Clip / details'],clipData.events.map(x=>[x.created,x.user_login,x.status,x.clip_id?'https://clips.twitch.tv/'+x.clip_id:x.detail])));
  const extra=await api('/api/voice/platforms');
  const platformCard=card('Kick & VPZone voice detection','Use the server audio worker on linked streams. Voice phrases are logged, but these platforms do not currently offer a supported public clip creation API.');
  for(const platform of ['kick','vpzone']){
@@ -213,9 +249,9 @@ async function voice(){
   const desktopHistory=card('Desktop clip results','Twitch creates native clips when live. Kick and VPZone report unsupported, rather than claiming a clip exists.');
   desktopHistory.append(table(['When','Platform','Result','Details'],companion.history.map(x=>[x.created,x.platform,x.status,x.clip_id||x.detail])));
   desktop.append(e('p','Companion source and Windows/Linux downloads: GitHub desktopapp branch (voice-companion/). Install Python, Vosk, sounddevice and a local speech model on the PC.','description'));
-  return h('div','stack',alpha,desktop,desktopHistory,v,history,platformCard,triggerLog);
+  return h('div','stack',alpha,desktop,desktopHistory,chatClip,clipHistory,v,history,platformCard,triggerLog);
  }
- return h('div','stack',alpha,v,history,platformCard,triggerLog);
+ return h('div','stack',alpha,chatClip,clipHistory,v,history,platformCard,triggerLog);
 }
 function loyalty(){return wrap(form('Loyalty settings',[['enabled','Enabled','checkbox',!!engagement.loyalty.enabled],['points_per_interval','Points per interval','number',engagement.loyalty.points_per_interval],['interval_minutes','Interval minutes','number',engagement.loyalty.interval_minutes]],'Save loyalty',x=>api('/api/engagement/loyalty','POST',x)),h('section','card',e('h2','Points leaderboard'),table(['Viewer','Points','Estimated active minutes'],creator.leaderboard.map(x=>[x.username,x.points,x.watch_minutes]))))}
 function campaigns(){return wrap(form('New giveaway or contest',[['title','Title'],['kind','Type','options',['giveaway','contest']],['cost','Entry points','number',0]],'Create event',x=>api('/api/creator/campaign','POST',x)),h('section','card',e('h2','Events'),table(['Title','Type','Status','Draw'],creator.campaigns.map(x=>[x.title,x.kind,x.status,x.status==='open'?btn('Draw winner',async()=>{const y=await api('/api/creator/campaign/draw','POST',{id:x.id});notify('Winner: '+y.winner);await reloadView()}):x.winner||'Closed']))))}
@@ -613,7 +649,7 @@ c.append(device);
 c.append(actions(btn('Reconnect bot EventSub',async()=>{await api('/api/admin/bot/reconnect','POST');notify('Reconnection requested');await show('admin')})),e('h3','Connected channels'),table(['Channel','Twitch ID','Enabled'],x.channels.map(v=>['@'+v.login,v.id,v.enabled?'Yes':'No'])));if(x.bot?.login===state.channel.login)c.append(e('div','Warning: The bot and broadcaster are the same Twitch account. For a public multi-channel bot, authorise a dedicated bot Twitch account instead.','empty'));const logs=await adminLogs();const diagnostics=card('Bot & platform logs','Operational diagnostics, integration errors, chat command logs and connection history.');diagnostics.append(table(['Time','Channel','Type','Detail'],logs.map(v=>[v.created,v.login||v.channel,v.event,v.detail])));return h('div','stack',c,diagnostics)}
 async function adminLogs(){return await api('/api/admin/logs').catch(()=>[])}
 
-const views={overview,activity,reports,commands,timers,moderation,voice,loyalty,campaigns,store,queue,quotes,overlays,subathon,streamboss,support,goals,metadata,multichat,relay,connections,channel,team,admin};
+const views={overview,activity,reports,commands,timers,moderation,voice,loyalty,campaigns,store,queue,quotes,pokemon,overlays,subathon,streamboss,support,goals,metadata,multichat,relay,connections,channel,team,admin};
 async function show(id){if((id==='admin'&&!state.isOperator)||(ownerPages.has(id)&&access.role!=='owner'))id='overview';page=id;$('#crumb').textContent=groups.flatMap(x=>x[1]).find(x=>x[0]===id)?.[2]||id;$('#page-title').textContent=$('#crumb').textContent;$('#page-desc').textContent=descriptions[id];$('#kicker').textContent=id==='admin'?'PLATFORM ADMINISTRATION':'CREATOR CONTROL CENTER';document.querySelectorAll('.nav-link').forEach(x=>x.classList.toggle('active',x.dataset.page===id));const view=$('#view');view.replaceChildren(e('p','Loading...','muted'));try{const result=await views[id]();view.replaceChildren(result)}catch(ex){view.replaceChildren(e('div','Failed to load page: '+ex.message,'empty'))}}
 // Live dashboard activity refresh while the Activity Feed page is displayed.
 let lastActivitySignature='';
