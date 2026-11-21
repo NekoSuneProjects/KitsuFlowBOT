@@ -1,4 +1,4 @@
-name: Studio frontend checks
+name: Studio checks
 on:
   push:
     branches: [main, 'feature/**']
@@ -7,33 +7,22 @@ on:
 permissions:
   contents: read
 jobs:
-  syntax:
+  checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Verify JavaScript syntax
-        run: |
-          node --check access.js
-          node --check server.js
-          node --check chat-relay.js
-          node --check public/invite.js
-          node --check public/studio.js
-          node --check platform-integrations.js
-          node --check nekolive-integration.js
-          node --check voice.js
-          node --check creator-tools.js
-          node --check public/multichat.js
-          node --check public/obs-live.js
-          node --check voice-companion.js
-          node --check chat-clip.js
-          node --check global-commands-extra.js
-          node --check pokemon-game.js
-          python3 -m py_compile voice-worker.py
+      - name: Verify JavaScript syntax (server, Studio modules, overlays)
+        run: npm run check
+      - name: Verify formatting
+        run: npx --yes prettier@3 --check "server.js" "src/**/*.js" "public/**/*.{html,css,js}"
+      - name: Verify voice worker syntax
+        run: python3 -m py_compile voice-worker.py
       - name: Verify required Studio assets
         run: |
           test -s public/index.html
-          test -s public/studio.css
-          test -s public/studio.js
+          test -s public/dashboard.html
+          test -s public/css/studio.css
+          test -s public/studio/main.js

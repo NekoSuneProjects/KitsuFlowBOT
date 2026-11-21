@@ -1,0 +1,89 @@
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: transparent;
+  color: #fff;
+  font:
+    700 16px Inter,
+    Arial,
+    sans-serif;
+}
+.panel {
+  margin: 8px;
+  padding: 16px 20px;
+  border-radius: 16px;
+  background: var(--background, #101c37);
+  border: 1px solid var(--accent, #4798ff);
+  box-shadow: 0 5px 23px #0005;
+  width: max-content;
+  min-width: 260px;
+  max-width: 96vw;
+}
+#title {
+  font-size: 15px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+#clock {
+  font-size: clamp(38px, 7vw, 100px);
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.025em;
+}
+#status {
+  font-size: 12px;
+  margin-top: 7px;
+  opacity: 0.85;
+}
+#rewards {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  min-width: 255px;
+  font-weight: 500;
+  font-size: 14px;
+}
+#rewards li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 6px 3px;
+  border-bottom: 1px solid #ffffff25;
+}
+#rewards strong {
+  color: var(--accent, #4798ff);
+  white-space: nowrap;
+}
+#rewards .platform {
+  font-size: 11px;
+  text-transform: uppercase;
+  opacity: 0.72;
+  margin-right: 7px;
+}
+.hidden {
+  display: none !important;
+}
+body.compact .panel {
+  border: 0;
+  border-radius: 9px;
+  padding: 12px;
+  background: linear-gradient(145deg, #064f9a, #07172d);
+  min-width: 235px;
+}
+body.compact #clock {
+  font-size: 35px;
+}
+body.compact #rewards {
+  font-size: 12px;
+  min-width: 230px;
+}
+body.compact #rewards li {
+  padding: 3px;
+}
+body.compact #status {
+  display: none;
+}

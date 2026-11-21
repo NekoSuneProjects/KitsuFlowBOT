@@ -1,0 +1,106 @@
+body {
+  background: #0b0f1b;
+}
+.landing {
+  max-width: 1150px;
+  margin: auto;
+  padding: 0 22px;
+}
+.landing-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 25px 0;
+  border-bottom: 1px solid #25314b;
+}
+.landing-logo {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.8px;
+}
+.landing-logo span {
+  color: #ac8cff;
+}
+.landing-actions {
+  display: flex;
+  gap: 12px;
+}
+.hero {
+  padding: 98px 0 85px;
+  max-width: 790px;
+}
+.hero small {
+  color: #b494ff;
+  letter-spacing: 2px;
+  font-weight: 800;
+}
+.hero h1 {
+  font-size: clamp(40px, 6vw, 73px);
+  letter-spacing: -3px;
+  line-height: 1.06;
+  margin: 21px 0;
+}
+.hero h1 span {
+  color: #b08bff;
+}
+.hero p {
+  font-size: 17px;
+  color: #9eabc3;
+  max-width: 620px;
+  line-height: 1.8;
+}
+.hero-buttons {
+  display: flex;
+  gap: 12px;
+  margin-top: 29px;
+  flex-wrap: wrap;
+}
+.landing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin: 0 0 90px;
+}
+.landing-tile {
+  border: 1px solid #2b3550;
+  background: #141b2b;
+  border-radius: 16px;
+  padding: 26px;
+}
+.landing-tile h2 {
+  font-size: 18px;
+}
+.landing-tile p {
+  font-size: 13px;
+  line-height: 1.8;
+  color: #9faac0;
+}
+.platforms {
+  color: #a4b0c8;
+  margin-top: 28px;
+  font-size: 13px;
+}
+.platforms strong {
+  color: #e0d1ff;
+}
+.landing-footer {
+  padding: 30px 0;
+  border-top: 1px solid #25314b;
+  color: #8694ad;
+  font-size: 12px;
+}
+@media (max-width: 700px) {
+  .landing-grid {
+    grid-template-columns: 1fr;
+  }
+  .hero {
+    padding: 60px 0;
+  }
+  .hero h1 {
+    letter-spacing: -2px;
+  }
+  .landing-actions {
+    gap: 7px;
+  }
+}

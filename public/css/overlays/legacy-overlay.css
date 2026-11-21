@@ -1,0 +1,25 @@
+html,
+body {
+  margin: 0;
+  background: transparent;
+  font: 700 30px system-ui;
+  color: #fff;
+  text-shadow: 0 3px 10px #100624;
+}
+#app {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 24px;
+}
+.row {
+  background: linear-gradient(120deg, #211344d9, #5e32bacc);
+  border: 1px solid #ac8bff;
+  border-radius: 14px;
+  padding: 14px 20px;
+  max-width: 700px;
+}
+.meta {
+  font-size: 16px;
+  color: #e2d4ff;
+}

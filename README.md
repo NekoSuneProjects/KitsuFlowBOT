@@ -13,6 +13,34 @@ Node.js 22+, Twitch developer application, an HTTPS reverse proxy in production.
 5. In the channel chat, the broadcaster must type `/mod YOUR_BOT_USERNAME` to grant Twitch moderator rights. Without this Twitch-granted role, bot moderation endpoints will fail. Broadcaster OAuth provides channel:bot consent for chat subscriptions but does not give moderator status.
 6. Use the custom commands dashboard; `!clip` (anyone by default — level and cooldown set under Voice & Clips; checks the stream is live and posts the clip link), `!timeout username 600 reason`, `!ban username reason` (moderators), `!uptime`. Use voice control in a supported Chromium browser to say **clip it**.
 
+### Project structure
+
+`server.js` only loads `.env` and calls `startServer()` in `src/app.js`. That file wires every module together, in an order that matters: the channel-scope middleware must come before the core Studio routes, and the static folder comes last.
+
+```
+src/
+  app.js                 module wiring and startup
+  config.js              environment parsing (Twitch credentials, keys, admin IDs)
+  core/                  database, AES-GCM token crypto, log table, Express app + guards
+  twitch/                Helix client, scopes, EventSub sockets, chat dispatcher,
+                         sign-in routes, Admin Panel bot routes
+  commands/              built-in global commands and the fun/points/game commands
+  studio/                selected-channel middleware and core Studio API
+  platforms/             Kick, VPZone (shared OAuth + metadata sync), NekoLive, TikTok
+  features/              access/roles, activity feed, alerts, payments, subathon, stream boss,
+                         goals, multi-chat, OBS sources, AI titles, relay, loyalty, giveaways,
+                         chat !clip, scam protection, voice/ and pokemon/
+  web/                   login/dashboard pages, public /commands page, static files
+public/
+  *.html                 pages served by the routes (paths unchanged)
+  css/, js/              shared styles, overlay and multi-chat scripts
+  studio/                Studio dashboard as ES modules: core/ (dom, api, store, router) and
+                         one file per page in pages/
+scripts/check-syntax.mjs `npm run check`: syntax-checks every server and browser file
+```
+
+Use `npm run format` (Prettier, config in `.prettierrc.json`) before committing. CI runs `npm run check` and a formatting check.
+
 ### Capabilities and limitations
 
 - Streamer/bot OAuth user tokens are separately encrypted at rest (AES-256-GCM); refresh tokens rotate.
@@ -55,7 +83,7 @@ Fun and points commands use a 5-second per-viewer cooldown; info commands use a 
 
 Turn it on per channel in **Studio → Community → Pokémon Game** (off by default).
 
-- **Wild spawns:** while the channel is live, a random Pokémon from **all 1025 species (Gens 1–9)** spawns every N minutes (default 15); you can limit spawns to certain generations in the dashboard. Viewers have 90 seconds to `!pokecatch [pokeball|greatball|ultraball|masterball]`. Everyone can catch the same spawn. Rarity tiers (Common to Epic) change spawn and catch odds, and 1 in 256 spawns is ✨ shiny. Legendaries and Mythicals (94 of them) only appear in raids. Rarity comes from each species' official catch rate and evolution stage (`pokedex.json`, generated from [PokeAPI](https://github.com/PokeAPI/pokeapi) data).
+- **Wild spawns:** while the channel is live, a random Pokémon from **all 1025 species (Gens 1–9)** spawns every N minutes (default 15); you can limit spawns to certain generations in the dashboard. Viewers have 90 seconds to `!pokecatch [pokeball|greatball|ultraball|masterball]`. Everyone can catch the same spawn. Rarity tiers (Common to Epic) change spawn and catch odds, and 1 in 256 spawns is ✨ shiny. Legendaries and Mythicals (94 of them) only appear in raids. Rarity comes from each species' official catch rate and evolution stage (`src/features/pokemon/pokedex.json`, generated from [PokeAPI](https://github.com/PokeAPI/pokeapi) data).
 - **PokéShop:** `!pokeshop`, `!pokebuy <item> [qty]`, paid with the channel's loyalty points. Items: Poké Ball 100, Great Ball 300, Ultra Ball 600, Master Ball 15000, Rare Candy 250 (`!pokecandy <pokemon>` gives +1 level), Lure 800 (`!pokelure` spawns a Pokémon now). New trainers get 5 free Poké Balls.
 - **Collection:** `!pokebag`, `!pokedex [@user]` (x/1025, shinies, strongest Pokémon), `!poketop`, `!pokehelp`. Pokédex and bag are tied to the viewer's Twitch account, so they carry across every KitsuFlowBOT channel.
 - **Primary Pokémon & evolution:** `!pokeprimary <pokemon|#id>` picks your partner (your first catch is set automatically). It gains XP from chatting (5 XP/min), catching (+20), raid hits (+5) and raid wins (+50); Rare Candy gives +1 level. It evolves at the **real evolution level** from PokeAPI data, e.g. Bulbasaur at 16 and Ivysaur at 32. Stone, friendship and other special evolutions use an **Evo Stone** (1500) with `!pokeevolve [into]`, e.g. `!pokeevolve umbreon` for Eevee. Trade evolutions (Kadabra, Machoke, Haunter...) happen when the Pokémon is traded. `!pokebox [page]` lists your Pokémon with their `#id`.
@@ -313,7 +341,7 @@ This functionality is in PR #59 only. Do not merge until explicitly approved.
 
 ## NekoLive integration
 
-NekoLive works like the Kick and VPZone integrations: the broadcaster links their NekoLive channel to their Twitch-based creator profile, and one shared bot posts to chat. Code lives in `nekolive-integration.js`.
+NekoLive works like the Kick and VPZone integrations: the broadcaster links their NekoLive channel to their Twitch-based creator profile, and one shared bot posts to chat. Code lives in `src/platforms/nekolive.js`.
 
 **What works**
 - **Incoming chat** is read from NekoLive's public chat WebSocket (`/chat/channel/<name>`). It needs no login and is restored after restarts. Emote markup is reduced to `:code:` text and never forwarded as HTML.

@@ -1,0 +1,53 @@
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  background: transparent;
+  color: #fff;
+  font:
+    600 20px Inter,
+    Arial,
+    sans-serif;
+}
+.toast {
+  position: absolute;
+  left: 24px;
+  bottom: 24px;
+  width: min(540px, calc(100vw - 48px));
+  padding: 22px 30px;
+  border: 2px solid var(--accent, #a879f7);
+  border-radius: 20px;
+  background: var(--bg, #1a1430);
+  box-shadow: 0 12px 45px #0007;
+  transform: translateY(130%);
+  opacity: 0;
+  transition:
+    transform 0.4s,
+    opacity 0.4s;
+}
+.toast.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+.heading {
+  font-size: 12px;
+  letter-spacing: 0.19em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+.headline {
+  font-weight: 800;
+  font-size: 32px;
+  margin: 8px 0;
+}
+.details {
+  font-size: 16px;
+  opacity: 0.9;
+}
+.platform {
+  font-size: 14px;
+  color: var(--accent, #a879f7);
+  text-transform: uppercase;
+}
