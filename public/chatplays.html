@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>KitsuFlow Chat Plays</title>
+    <link rel="stylesheet" href="/css/overlays/chatplays.css" />
+  </head>
+  <body>
+    <section id="setup" class="setup">
+      <h1>Chat Plays</h1>
+      <p id="system-line">Loading settings…</p>
+      <p>Choose a ROM you own. It stays in this browser: it is never uploaded to KitsuFlowBOT.</p>
+      <label class="file">
+        <input id="rom" type="file" accept=".nes,.gba,.zip,.7z" />
+        <span>Choose ROM…</span>
+      </label>
+      <button id="resume" type="button" hidden>Play last ROM</button>
+      <label class="remember"
+        ><input id="remember" type="checkbox" checked /> Remember the ROM in this browser</label
+      >
+      <p class="hint">
+        In OBS: add this page as a Browser Source, right-click it → Interact, and choose the ROM.
+        Add <code>?autostart=1</code> to the URL to start the remembered ROM automatically.
+      </p>
+    </section>
+    <div id="stage" class="stage" hidden>
+      <div id="game"></div>
+      <aside class="feed">
+        <div id="mode" class="mode"></div>
+        <ol id="inputs"></ol>
+      </aside>
+    </div>
+    <script src="/js/chatplays.js"></script>
+  </body>
+</html>

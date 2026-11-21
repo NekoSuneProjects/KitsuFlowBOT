@@ -11,6 +11,7 @@ import { registerTwitchAuthRoutes } from './twitch/auth-routes.js';
 import { registerTwitchAdminRoutes } from './twitch/admin-routes.js';
 import { createGlobalCommands, GLOBAL_COMMANDS } from './commands/global-commands.js';
 import { installAssistant } from './features/assistant.js';
+import { installInteractive } from './features/interactive.js';
 import { createAskGpt } from './commands/askgpt.js';
 import { installWatchTime } from './features/watch-time.js';
 import { createOmniClient } from './features/ai/omni.js';
@@ -180,7 +181,9 @@ export function startServer() {
     botId
   });
   features.chatClip = installChatClip({ app, db, withUser, csrf, access, api, clip, log, say });
-  // KitsuFlowBOT Assistant desktop app: Beat Saber requests and Minecraft Interactive.
+  // Twitch Interactive: overlay actions (!slap/!boop/!pat) and Chat Plays (NES/GBA in the browser).
+  features.interactive = installInteractive({ app, db, withUser, csrf, safe, access, say, log });
+  // KitsuFlowBOT Assistant desktop app: Beat Saber requests and game actions.
   features.assistant = installAssistant({
     app,
     db,

@@ -424,3 +424,27 @@ The desktop app (`desktopapp` branch, `assistant/`) replaces the Voice Companion
 - **Minecraft Interactive:** actions are triggered by a chat command (with points cost, cooldown and level) or a stream event (follow, sub, gift sub, cheer, kicks, tip or raid on a chosen platform, with an optional minimum amount). Each action sends one or more RCON commands; `{player}` (the streamer's in-game name, filled in by the app) and `{user}` (the sanitised viewer name) can be used in them. **Test** in Studio queues an action without charging anyone.
 - **Jobs:** the app claims jobs from `GET /api/assistant/device/jobs` and reports results to `POST /api/assistant/device/jobs/:id`. Jobs that aren't claimed within 10 minutes, or aren't reported within 5 minutes of being claimed, expire. Failed or expired jobs refund the viewer's points. The Assistant App page shows the job history and can cancel pending jobs.
 - The app refuses server-admin RCON commands (`op`, `stop`, `ban`, …) and only downloads maps from `beatsaver.com`.
+
+## Game Interactive (ARK, RCON games, key presses)
+
+Assistant actions are no longer Minecraft-only. Each action in Studio → **Assistant App** has a game, and **Start from a preset** fills in ready-made actions:
+
+| Game | How it runs | `{player}` | Presets |
+| --- | --- | --- | --- |
+| Minecraft (Java) | RCON | Minecraft name | creeper, zombie horde, anvil drop, smite (lightning), random TP, TNT, levitate, blindness, heal, diamond, night, storm, fireworks |
+| ARK: Survival Evolved / Ascended | RCON (no `cheat` prefix needed) | numeric player ID (`ListPlayers`) | server message, broadcast, XP, raw meat, smite (KillPlayer), day/night |
+| Palworld, Factorio, Project Zomboid, other RCON | RCON | player name | broadcast, Factorio biters/items, Zomboid horde/helicopter/lightning/axe |
+| PC key presses (Windows) | `SendInput` scan codes | — | jump, crouch, walk, spin, attack, drop |
+
+ARK's console can't spawn creatures at a player from RCON (spawn commands use the caller's position), so ARK presets stick to commands that take a player ID. Key-press actions use one step per line: `space`, `ctrl+s`, `w 1500` (hold ms), `click`/`rclick`, `wait 500`. The app only presses keys while the focused window title matches the one set in the app, and Windows keys, Alt+F4, Alt+Tab and Ctrl+Esc are refused. Each game has its own server-admin blocklist, checked both in KitsuFlowBOT and again in the app. Old Minecraft actions keep working: they get `game = minecraft`, and the old `/api/assistant/minecraft` routes still exist.
+
+## Twitch Interactive: overlay actions and Chat Plays
+
+Studio → **Twitch Interactive**:
+
+- **Viewer overlay actions:** `!pat`/`!headpat`, `!hug`, `!slap`/`!punch`, `!boop`, `!feed`, `!kiss`, `!poke`, `!tickle`, `!gun` and `!reverse` are seeded, and you can add your own. Each action has a GIF source (nekos.life, the NekoSuneVR boop API, or your own https GIF link), a sound (played always, never, or only when the target is the streamer), text with `{target}`/`{user}`, a points cost (default free), a per-viewer cooldown and a permission level. Add `/interactive/overlay/<key>` as an OBS Browser Source. Actions only fire while that overlay is open, so nobody pays for an overlay you aren't showing. The existing `!hug`/`!pat`/`!boop`/`!slap` chat replies still post alongside the overlay.
+- **Chat Plays (NES / GBA):** open `/interactive/chatplays/<key>` in a browser or an OBS Browser Source (use Interact) and pick a ROM you own. It runs in [EmulatorJS](https://emulatorjs.org) in that browser, and the ROM never leaves your PC (it can be remembered in that browser's IndexedDB; add `?autostart=1` to reload into it). Chat types `up`, `down`, `left`, `right`, `a`, `b`, `start`, `select` (GBA adds `l`, `r`) with optional repeats like `up3`.
+  - **Anarchy** presses every input, with a per-viewer rate limit.
+  - **Democracy** presses the most-voted input every N seconds.
+  - Start/select can be limited to mods.
+- **New secret URLs** replaces the key for both pages. The pages send `Referrer-Policy: no-referrer`, so the key isn't leaked to the GIF or emulator CDNs.

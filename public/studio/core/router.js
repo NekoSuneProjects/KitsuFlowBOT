@@ -18,6 +18,7 @@ import { relay } from '../pages/relay.js';
 import { channel, team } from '../pages/settings.js';
 import { admin } from '../pages/admin.js';
 import { assistant } from '../pages/assistant.js';
+import { interactive } from '../pages/interactive.js';
 import { $, e, h } from './dom.js';
 import { notify, api, error } from './api.js';
 import { state, access, page, setStudioData, setPage } from './store.js';
@@ -63,6 +64,7 @@ export const groups = [
       ['subathon', '⏳', 'Subathon Timer'],
       ['streamboss', '⚔', 'Stream Boss'],
       ['support', '♡', 'Alerts & Donations'],
+      ['interactive', '✋', 'Twitch Interactive'],
       ['assistant', '◈', 'Assistant App'],
       ['connections', '⇄', 'Connections']
     ]
@@ -88,7 +90,8 @@ export const ownerPages = new Set([
   'metadata',
   'multichat',
   'relay',
-  'assistant'
+  'assistant',
+  'interactive'
 ]);
 export const descriptions = {
   overview: 'A clear view of everything happening across your channel.',
@@ -116,7 +119,9 @@ export const descriptions = {
   channel: 'Manage your own channel and security credentials.',
   team: 'Invite editors and trusted moderators.',
   admin: 'Configure and monitor the public bot for all channels.',
-  assistant: 'Desktop app: Beat Saber song requests and Minecraft Interactive.'
+  assistant:
+    'Desktop app: Beat Saber song requests and game actions (Minecraft, ARK, RCON games, key presses).',
+  interactive: 'Viewer overlay actions (slap, boop, pat…) and Chat Plays for NES/GBA.'
 };
 export async function load() {
   try {
@@ -227,7 +232,8 @@ const views = {
   channel,
   team,
   admin,
-  assistant
+  assistant,
+  interactive
 };
 export async function show(id) {
   if ((id === 'admin' && !state.isOperator) || (ownerPages.has(id) && access.role !== 'owner'))

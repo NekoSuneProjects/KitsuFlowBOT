@@ -1,0 +1,78 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #0d0b14;
+  color: #f3efff;
+  font-family: Arial, Helvetica, sans-serif;
+}
+.setup {
+  max-width: 520px;
+  margin: 10vh auto;
+  padding: 24px;
+  background: #1a1430;
+  border-radius: 12px;
+  text-align: center;
+}
+.setup h1 {
+  margin-top: 0;
+}
+.file input {
+  display: none;
+}
+.file span,
+.setup button {
+  display: inline-block;
+  margin: 8px;
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 8px;
+  background: #a879f7;
+  color: #fff;
+  font-size: 16px;
+  cursor: pointer;
+}
+.remember {
+  display: block;
+  margin-top: 8px;
+}
+.hint {
+  color: #b8acd6;
+  font-size: 14px;
+}
+.stage {
+  display: flex;
+  height: 100%;
+}
+.stage[hidden] {
+  display: none;
+}
+#game {
+  flex: 1;
+  height: 100%;
+}
+.feed {
+  width: 240px;
+  padding: 12px;
+  background: rgba(26, 20, 48, 0.92);
+  overflow: hidden;
+}
+.mode {
+  font-weight: bold;
+  margin-bottom: 8px;
+  white-space: pre-line;
+}
+.feed ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.feed li {
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 15px;
+}
+.feed li b {
+  color: #ff7c0a;
+  text-transform: uppercase;
+}

@@ -1,11 +1,12 @@
 // KitsuFlowBOT Assistant (desktop app) server side: a job queue the streamer's PC polls with its
 // paired device key, plus the features that feed it:
 //   - Beat Saber song requests: !bsr <BeatSaver key> -> the app installs the map on the PC.
-//   - Minecraft Interactive: chat commands, stream events or a Studio test fire RCON commands
-//     the app runs against the streamer's Minecraft server.
+//   - Game Interactive (Minecraft, ARK, other RCON games, PC key presses): chat commands, stream
+//     events or a Studio test fire actions the app runs against the streamer's game.
 // Jobs: pending -> delivered (app fetched it) -> done | failed. Points spent on a job are refunded
 // when it fails or nobody picks it up in time.
 import { createDeviceAuth, deviceOnline } from './companion-devices.js';
+import { GAMES, GAME_IDS, PRESETS, parseRconLines, parseTemplate } from './game-actions.js';
 
 const BSR_KEY = /^[0-9a-f]{1,8}$/i;
 const COMMAND_NAME = /^[a-z0-9_]{2,24}$/;
@@ -32,26 +33,6 @@ const PLATFORMS = [
   'tipeeestream',
   'kofi'
 ];
-// Server-admin commands viewers must never be able to trigger, even if a template lists them.
-const BLOCKED_RCON = new Set([
-  'op',
-  'deop',
-  'stop',
-  'ban',
-  'ban-ip',
-  'pardon',
-  'pardon-ip',
-  'whitelist',
-  'kick',
-  'save-off',
-  'save-all',
-  'reload',
-  'restart',
-  'debug',
-  'perf',
-  'jfr',
-  'transfer'
-]);
 const PENDING_TTL_MS = 10 * 60000;
 const DELIVERED_TTL_MS = 5 * 60000;
 const clean = (value, max = 120) =>
@@ -64,25 +45,14 @@ const safeName = value =>
     .replace(/[^A-Za-z0-9_]/g, '')
     .slice(0, 25) || 'viewer';
 
-// Validates an action's RCON template: one command per line, no leading slash, no admin commands.
-export function parseRconTemplate(text) {
-  const lines = String(text || '')
+// Validates a Minecraft RCON template (kept for callers of the original Minecraft-only API).
+export const parseRconTemplate = text => parseRconLines('minecraft', text);
+const GAME_KINDS = new Set(Object.values(GAMES).map(g => g.kind));
+const templateLines = text =>
+  String(text || '')
     .split(/\r?\n/)
-    .map(l => l.trim().replace(/^\/+/, ''))
+    .map(l => l.trim())
     .filter(Boolean);
-  if (!lines.length) throw Error('Add at least one Minecraft command');
-  if (lines.length > 10) throw Error('At most 10 commands per action');
-  for (const line of lines) {
-    if (line.length > 240) throw Error('Each command must be 240 characters or fewer');
-    const word = line
-      .split(/\s+/)[0]
-      .toLowerCase()
-      .replace(/^minecraft:/, '');
-    if (BLOCKED_RCON.has(word))
-      throw Error('"' + word + '" is a server-admin command and is not allowed');
-  }
-  return lines;
-}
 
 export function installAssistant({
   app,
@@ -106,6 +76,13 @@ export function installAssistant({
     name TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1,trigger_type TEXT NOT NULL,command TEXT,
     event_platform TEXT,event_type TEXT,min_amount REAL NOT NULL DEFAULT 0,level TEXT NOT NULL DEFAULT 'everyone',
     cost INTEGER NOT NULL DEFAULT 0,cooldown INTEGER NOT NULL DEFAULT 30,commands TEXT NOT NULL,reply TEXT NOT NULL DEFAULT '');`);
+  if (
+    !db
+      .prepare('PRAGMA table_info(minecraft_actions)')
+      .all()
+      .some(c => c.name === 'game')
+  )
+    db.exec("ALTER TABLE minecraft_actions ADD COLUMN game TEXT NOT NULL DEFAULT 'minecraft'");
 
   const deviceAuth = createDeviceAuth(db);
   const online = channel => deviceOnline(db, channel, 30);
@@ -190,7 +167,7 @@ export function installAssistant({
               ']. Added!'
           : '@' + job.requester + " couldn't add [" + payload.key + ']: ' + clean(message, 150)
       );
-    } else if (job.kind === 'minecraft') {
+    } else if (GAME_KINDS.has(job.kind)) {
       if (ok && payload.reply) reply(job.channel, payload.reply);
       if (!ok && job.requester)
         reply(
@@ -309,21 +286,27 @@ export function installAssistant({
     return true;
   }
 
-  // ---- Minecraft Interactive ----
+  // ---- Game Interactive (Minecraft, ARK, other RCON games, PC key presses) ----
   const actionCooldowns = new Map();
-  const actionPayload = (action, user, amount) => ({
-    action: action.name,
-    commands: JSON.parse(action.commands).map(line =>
-      line
-        .replaceAll('{user}', safeName(user))
-        .replaceAll('{amount}', String(Math.floor(Number(amount) || 0)))
-    ),
-    reply: action.reply
-      ? action.reply
-          .replaceAll('{user}', safeName(user))
-          .replaceAll('{amount}', String(Math.floor(Number(amount) || 0)))
-      : ''
-  });
+  const gameOf = action => (GAMES[action.game] ? action.game : 'minecraft');
+  const fill = (text, user, amount) =>
+    text
+      .replaceAll('{user}', safeName(user))
+      .replaceAll('{amount}', String(Math.floor(Number(amount) || 0)));
+  const actionPayload = (action, user, amount) => {
+    const game = gameOf(action),
+      lines = JSON.parse(action.commands);
+    return {
+      action: action.name,
+      game,
+      ...(game === 'keys'
+        ? { steps: parseTemplate('keys', lines.join('\n')) }
+        : { commands: lines.map(line => fill(line, user, amount)) }),
+      reply: action.reply ? fill(action.reply, user, amount) : ''
+    };
+  };
+  const queueAction = (channel, action, user, amount, extra) =>
+    enqueue(channel, GAMES[gameOf(action)].kind, actionPayload(action, user, amount), extra);
   async function minecraftCommand(ch, e, cmd) {
     const action = db
       .prepare(
@@ -337,7 +320,7 @@ export function installAssistant({
       key = ch.id + ':' + action.id;
     if (now - (actionCooldowns.get(key) || 0) < action.cooldown * 1000) return true;
     if (!online(ch.id)) {
-      await reply(ch.id, '@' + who + ' Minecraft actions are offline right now.');
+      await reply(ch.id, '@' + who + ' game actions are offline right now.');
       return true;
     }
     if (!debit(ch.id, e.chatter_user_id, action.cost)) {
@@ -345,7 +328,7 @@ export function installAssistant({
       return true;
     }
     actionCooldowns.set(key, now);
-    enqueue(ch.id, 'minecraft', actionPayload(action, who, 0), {
+    queueAction(ch.id, action, who, 0, {
       requesterId: action.cost ? e.chatter_user_id : null,
       requester: who,
       cost: action.cost
@@ -371,7 +354,7 @@ export function installAssistant({
         key = channel + ':' + action.id;
       if (now - (actionCooldowns.get(key) || 0) < action.cooldown * 1000) continue;
       actionCooldowns.set(key, now);
-      enqueue(channel, 'minecraft', actionPayload(action, actor, amount), { requester: null });
+      queueAction(channel, action, actor, amount, { requester: null });
     }
   }
 
@@ -388,16 +371,16 @@ export function installAssistant({
   // ---- device API (KitsuFlowBOT Assistant app) ----
   app.get('/api/assistant/device/config', deviceAuth, (req, res) => {
     const channel = req.companion.channel;
+    const actionList = db
+      .prepare(
+        'SELECT id,name,game,trigger_type,command,event_type,enabled FROM minecraft_actions WHERE channel=? ORDER BY game,name'
+      )
+      .all(channel);
     res.set('Cache-Control', 'no-store').json({
       channel: db.prepare('SELECT login FROM channels WHERE id=?').get(channel)?.login || '',
       bsr: { enabled: Boolean(bsrSettings(channel).enabled) },
-      minecraft: {
-        actions: db
-          .prepare(
-            'SELECT id,name,trigger_type,command,event_type,enabled FROM minecraft_actions WHERE channel=? ORDER BY name'
-          )
-          .all(channel)
-      }
+      minecraft: { actions: actionList.filter(a => a.game === 'minecraft') },
+      games: { actions: actionList }
     });
   });
   app.get('/api/assistant/device/jobs', deviceAuth, (req, res) => {
@@ -448,8 +431,10 @@ export function installAssistant({
       levels: LEVELS,
       event_types: EVENT_TYPES,
       platforms: PLATFORMS,
+      games: GAME_IDS.map(id => ({ id, label: GAMES[id].label, help: GAMES[id].help })),
+      presets: PRESETS,
       actions: db
-        .prepare('SELECT * FROM minecraft_actions WHERE channel=? ORDER BY name')
+        .prepare('SELECT * FROM minecraft_actions WHERE channel=? ORDER BY game,name')
         .all(channel)
         .map(a => ({
           ...a,
@@ -470,6 +455,7 @@ export function installAssistant({
             result: j.result,
             requester: j.requester,
             created: j.created,
+            game: j.kind === 'bsr' ? 'beatsaber' : p.game || 'minecraft',
             title:
               j.kind === 'bsr' ? p.songAuthor + ' - ' + p.songName + ' [' + p.key + ']' : p.action
           };
@@ -496,95 +482,97 @@ export function installAssistant({
     ).run(req.channelId, b.enabled ? 1 : 0, b.level, cooldown, maxQueue);
     res.json({ ok: true });
   });
-  app.post(
-    '/api/assistant/minecraft',
-    ...owner,
-    csrf,
-    safe(async (req, res) => {
-      const b = req.body || {};
-      const id = b.id ? Number(b.id) : null;
-      const name = clean(b.name, 40);
-      if (!name) throw Error('Give the action a name');
-      if (!['command', 'event'].includes(b.trigger_type))
-        throw Error('Choose a chat command or a stream event trigger');
-      const commands = parseRconTemplate(b.commands);
-      const cost = Number(b.cost) || 0,
-        cooldown = Number(b.cooldown) || 0,
-        minAmount = Number(b.min_amount) || 0;
-      if (!Number.isInteger(cost) || cost < 0 || cost > 1000000)
-        throw Error('Point cost must be 0–1,000,000');
-      if (!Number.isInteger(cooldown) || cooldown < 0 || cooldown > 86400)
-        throw Error('Cooldown must be 0–86400 seconds');
-      if (!LEVELS.includes(b.level || 'everyone')) throw Error('Invalid permission level');
-      let command = null,
-        eventPlatform = null,
-        eventType = null;
-      if (b.trigger_type === 'command') {
-        command = String(b.command || '')
-          .toLowerCase()
-          .replace(/^!/, '');
-        if (!COMMAND_NAME.test(command)) throw Error('Command must be 2–24 letters, numbers or _');
-        if (command === 'bsr' || reservedCommands().includes(command))
-          throw Error('!' + command + ' is already a built-in command');
-        if (
-          db
-            .prepare('SELECT 1 FROM commands WHERE channel=? AND name=?')
-            .get(req.channelId, command)
-        )
-          throw Error('!' + command + ' is already a custom command');
-        const clash = db
-          .prepare(
-            "SELECT id FROM minecraft_actions WHERE channel=? AND trigger_type='command' AND command=?"
-          )
-          .get(req.channelId, command);
-        if (clash && clash.id !== id) throw Error('Another action already uses !' + command);
-      } else {
-        eventPlatform = String(b.event_platform || 'any');
-        eventType = String(b.event_type || '');
-        if (!PLATFORMS.includes(eventPlatform) || !EVENT_TYPES.includes(eventType))
-          throw Error('Choose a valid platform and event');
-        if (!Number.isFinite(minAmount) || minAmount < 0)
-          throw Error('Minimum amount must be 0 or more');
-      }
-      const values = [
-        name,
-        b.enabled === false ? 0 : 1,
-        b.trigger_type,
-        command,
-        eventPlatform,
-        eventType,
-        minAmount,
-        b.level || 'everyone',
-        cost,
-        cooldown,
-        JSON.stringify(commands),
-        clean(b.reply, 300)
-      ];
-      if (id) {
-        const changed = db
-          .prepare(
-            'UPDATE minecraft_actions SET name=?,enabled=?,trigger_type=?,command=?,event_platform=?,event_type=?,min_amount=?,level=?,cost=?,cooldown=?,commands=?,reply=? WHERE id=? AND channel=?'
-          )
-          .run(...values, id, req.channelId).changes;
-        if (!changed) return res.status(404).json({ error: 'Action not found' });
-        return res.json({ ok: true, id });
-      }
-      const created = db
+  const saveAction = safe(async (req, res) => {
+    const b = req.body || {};
+    const game = b.game === undefined ? 'minecraft' : String(b.game);
+    if (!GAMES[game]) throw Error('Choose a game');
+    const id = b.id ? Number(b.id) : null;
+    const name = clean(b.name, 40);
+    if (!name) throw Error('Give the action a name');
+    if (!['command', 'event'].includes(b.trigger_type))
+      throw Error('Choose a chat command or a stream event trigger');
+    const parsed = parseTemplate(game, b.commands);
+    // RCON lines are stored as validated (leading slashes removed); key steps as typed.
+    const commands = game === 'keys' ? templateLines(b.commands).map(l => l.toLowerCase()) : parsed;
+    const cost = Number(b.cost) || 0,
+      cooldown = Number(b.cooldown) || 0,
+      minAmount = Number(b.min_amount) || 0;
+    if (!Number.isInteger(cost) || cost < 0 || cost > 1000000)
+      throw Error('Point cost must be 0–1,000,000');
+    if (!Number.isInteger(cooldown) || cooldown < 0 || cooldown > 86400)
+      throw Error('Cooldown must be 0–86400 seconds');
+    if (!LEVELS.includes(b.level || 'everyone')) throw Error('Invalid permission level');
+    let command = null,
+      eventPlatform = null,
+      eventType = null;
+    if (b.trigger_type === 'command') {
+      command = String(b.command || '')
+        .toLowerCase()
+        .replace(/^!/, '');
+      if (!COMMAND_NAME.test(command)) throw Error('Command must be 2–24 letters, numbers or _');
+      if (command === 'bsr' || reservedCommands().includes(command))
+        throw Error('!' + command + ' is already a built-in command');
+      if (
+        db.prepare('SELECT 1 FROM commands WHERE channel=? AND name=?').get(req.channelId, command)
+      )
+        throw Error('!' + command + ' is already a custom command');
+      const clash = db
         .prepare(
-          'INSERT INTO minecraft_actions(name,enabled,trigger_type,command,event_platform,event_type,min_amount,level,cost,cooldown,commands,reply,channel) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)'
+          "SELECT id FROM minecraft_actions WHERE channel=? AND trigger_type='command' AND command=?"
         )
-        .run(...values, req.channelId);
-      res.json({ ok: true, id: Number(created.lastInsertRowid) });
-    })
-  );
-  app.delete('/api/assistant/minecraft/:id', ...owner, csrf, (req, res) => {
+        .get(req.channelId, command);
+      if (clash && clash.id !== id) throw Error('Another action already uses !' + command);
+    } else {
+      eventPlatform = String(b.event_platform || 'any');
+      eventType = String(b.event_type || '');
+      if (!PLATFORMS.includes(eventPlatform) || !EVENT_TYPES.includes(eventType))
+        throw Error('Choose a valid platform and event');
+      if (!Number.isFinite(minAmount) || minAmount < 0)
+        throw Error('Minimum amount must be 0 or more');
+    }
+    const values = [
+      name,
+      b.enabled === false ? 0 : 1,
+      b.trigger_type,
+      command,
+      eventPlatform,
+      eventType,
+      minAmount,
+      b.level || 'everyone',
+      cost,
+      cooldown,
+      JSON.stringify(commands),
+      clean(b.reply, 300),
+      game
+    ];
+    if (id) {
+      const changed = db
+        .prepare(
+          'UPDATE minecraft_actions SET name=?,enabled=?,trigger_type=?,command=?,event_platform=?,event_type=?,min_amount=?,level=?,cost=?,cooldown=?,commands=?,reply=?,game=? WHERE id=? AND channel=?'
+        )
+        .run(...values, id, req.channelId).changes;
+      if (!changed) return res.status(404).json({ error: 'Action not found' });
+      return res.json({ ok: true, id });
+    }
+    const created = db
+      .prepare(
+        'INSERT INTO minecraft_actions(name,enabled,trigger_type,command,event_platform,event_type,min_amount,level,cost,cooldown,commands,reply,game,channel) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+      )
+      .run(...values, req.channelId);
+    res.json({ ok: true, id: Number(created.lastInsertRowid) });
+  });
+  app.post('/api/assistant/actions', ...owner, csrf, saveAction);
+  app.post('/api/assistant/minecraft', ...owner, csrf, saveAction);
+  const deleteAction = (req, res) => {
     db.prepare('DELETE FROM minecraft_actions WHERE id=? AND channel=?').run(
       Number(req.params.id),
       req.channelId
     );
     res.json({ ok: true });
-  });
-  app.post('/api/assistant/minecraft/:id/test', ...owner, csrf, (req, res) => {
+  };
+  app.delete('/api/assistant/actions/:id', ...owner, csrf, deleteAction);
+  app.delete('/api/assistant/minecraft/:id', ...owner, csrf, deleteAction);
+  const testAction = (req, res) => {
     const action = db
       .prepare('SELECT * FROM minecraft_actions WHERE id=? AND channel=?')
       .get(Number(req.params.id), req.channelId);
@@ -595,13 +583,11 @@ export function installAssistant({
         .json({ error: 'The KitsuFlowBOT Assistant app is not running on your PC' });
     const login =
       db.prepare('SELECT login FROM channels WHERE id=?').get(req.channelId)?.login || 'streamer';
-    const id = enqueue(
-      req.channelId,
-      'minecraft',
-      actionPayload(action, login, action.min_amount || 1)
-    );
+    const id = queueAction(req.channelId, action, login, action.min_amount || 1);
     res.json({ ok: true, job: id });
-  });
+  };
+  app.post('/api/assistant/actions/:id/test', ...owner, csrf, testAction);
+  app.post('/api/assistant/minecraft/:id/test', ...owner, csrf, testAction);
   app.post('/api/assistant/jobs/:id/cancel', ...owner, csrf, (req, res) => {
     const job = db
       .prepare(

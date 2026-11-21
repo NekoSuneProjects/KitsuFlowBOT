@@ -13,12 +13,27 @@ const EVENT_LABELS = {
   raid: 'Raid'
 };
 
-function actionEditor(d, action = {}) {
+const gameLabel = (d, id) => d.games.find(g => g.id === id)?.label || id;
+
+function actionEditor(d, action = {}, game = action.game || 'minecraft') {
   const isNew = !action.id;
+  const info = d.games.find(g => g.id === game) || d.games[0];
   const pane = card(
-    isNew ? 'New Minecraft action' : 'Edit: ' + action.name,
-    'One Minecraft command per line, without the leading slash. Placeholders: {player} (your Minecraft name, set in the app), {user} (viewer) and {amount} (Bits, gift count…). Server-admin commands like op, stop or ban are blocked.'
+    (isNew ? 'New action: ' : 'Edit: ' + action.name + ' — ') + info.label,
+    info.help +
+      ' Placeholders: {user} (viewer) and {amount} (Bits, gift count…). Server-admin commands are blocked.'
   );
+  const presets = d.presets[game] || [];
+  const preset = selector(
+    'Start from a preset',
+    [['', '— choose a preset —'], ...presets.map((p, i) => [String(i), p.name])],
+    ''
+  );
+  preset.el.addEventListener('change', () => {
+    const p = presets[Number(preset.value())];
+    if (!p) return;
+    editorSlotOf(pane).replaceChildren(actionEditor(d, { ...p, id: action.id }, game));
+  });
   const name = input('Action name', action.name || 'Spawn a creeper');
   const trigger = selector(
     'Trigger',
@@ -44,9 +59,8 @@ function actionEditor(d, action = {}) {
   );
   const cooldown = input('Cooldown (seconds)', action.cooldown ?? 30, 'number');
   const commands = input(
-    'Minecraft commands',
-    action.commands ||
-      'execute at {player} run summon minecraft:creeper ~ ~ ~3\ntellraw @a {"text":"{user} sent a creeper!","color":"green"}',
+    game === 'keys' ? 'Key steps' : 'Commands',
+    action.commands ?? '',
     'textarea'
   );
   const replyText = input(
@@ -63,6 +77,7 @@ function actionEditor(d, action = {}) {
   trigger.el.addEventListener('change', sync);
   sync();
   pane.append(
+    presets.length ? preset.node : '',
     grid('cols2', name.node, trigger.node, cooldown.node, enabled.node),
     commandFields,
     eventFields,
@@ -72,8 +87,9 @@ function actionEditor(d, action = {}) {
       btn(
         isNew ? 'Create action' : 'Save action',
         async () => {
-          await api('/api/assistant/minecraft', 'POST', {
+          await api('/api/assistant/actions', 'POST', {
             id: action.id,
+            game,
             name: name.value(),
             trigger_type: trigger.value(),
             command: command.value(),
@@ -87,7 +103,7 @@ function actionEditor(d, action = {}) {
             reply: replyText.value(),
             enabled: enabled.value()
           });
-          notify('Minecraft action saved');
+          notify('Action saved');
           await reloadView();
         },
         'primary'
@@ -98,21 +114,23 @@ function actionEditor(d, action = {}) {
   return pane;
 }
 
-// KitsuFlowBOT Assistant: Beat Saber song requests and Minecraft Interactive.
+const editorSlotOf = node => node.parentElement;
+
+// KitsuFlowBOT Assistant: Beat Saber song requests and game actions.
 export async function assistant() {
   const d = await api('/api/assistant');
   const root = h('div', 'stack');
 
   const status = card(
     'KitsuFlowBOT Assistant app',
-    'The desktop app runs on your streaming PC: voice clips, Beat Saber song requests and Minecraft Interactive. Pair it once with a device key from Voice & Clips → Pair a PC.'
+    'The desktop app runs on your streaming PC: voice clips, Beat Saber song requests and game actions (Minecraft, ARK, other RCON games, key presses). Pair it once with a device key from Voice & Clips → Pair a PC.'
   );
   status.append(
     e(
       'p',
       d.online
         ? '● The Assistant app is connected.'
-        : '○ The Assistant app is not connected. Start it on your PC to use song requests and Minecraft actions.',
+        : '○ The Assistant app is not connected. Start it on your PC to use song requests and game actions.',
       'description'
     ),
     actions(
@@ -152,14 +170,15 @@ export async function assistant() {
   );
   root.append(bsr);
 
-  // Minecraft
+  // Game actions
   const mc = card(
-    'Minecraft Interactive',
-    'Chat commands, stream events and tests run Minecraft commands on your server through RCON. Set the RCON address, password and your Minecraft name in the Assistant app.'
+    'Game Interactive',
+    'Chat commands (paid with channel points), stream events and tests run actions in your game: Minecraft, ARK and other RCON games through RCON, or key presses in any Windows game. Set up each game (address, password, your player name/ID, or the game window for key presses) in the Assistant app.'
   );
   const editorSlot = h('div', '');
   const rows = d.actions.map(a => [
     a.name + (a.enabled ? '' : ' (off)'),
+    gameLabel(d, a.game || 'minecraft'),
     a.trigger_type === 'command'
       ? '!' + a.command + (a.cost ? ' · ' + a.cost + ' pts' : '') + ' · ' + a.level
       : (a.event_platform === 'any' ? 'any platform' : a.event_platform) +
@@ -169,7 +188,7 @@ export async function assistant() {
     a.cooldown + 's',
     actions(
       btn('Test', async () => {
-        await api('/api/assistant/minecraft/' + a.id + '/test', 'POST', {});
+        await api('/api/assistant/actions/' + a.id + '/test', 'POST', {});
         notify('Test sent to the Assistant app');
         await reloadView();
       }),
@@ -181,20 +200,27 @@ export async function assistant() {
         'Delete',
         async () => {
           if (!confirm('Delete ' + a.name + '?')) return;
-          await api('/api/assistant/minecraft/' + a.id, 'DELETE');
+          await api('/api/assistant/actions/' + a.id, 'DELETE');
           await reloadView();
         },
         'danger'
       )
     )
   ]);
+  const newGame = selector(
+    'Game for a new action',
+    d.games.map(g => [g.id, g.label]),
+    'minecraft'
+  );
   mc.append(
-    table(['Action', 'Trigger', 'Cooldown', ''], rows),
+    table(['Action', 'Game', 'Trigger', 'Cooldown', ''], rows),
+    newGame.node,
     actions(
       btn(
         'New action',
         () => {
-          editorSlot.replaceChildren(actionEditor(d));
+          const g = newGame.value();
+          editorSlot.replaceChildren(actionEditor(d, { ...(d.presets[g]?.[0] || {}) }, g));
           editorSlot.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         },
         'primary'
@@ -214,7 +240,7 @@ export async function assistant() {
       ['When', 'Type', 'Item', 'By', 'Status', ''],
       d.jobs.map(j => [
         new Date(j.created).toLocaleString(),
-        j.kind === 'bsr' ? 'Beat Saber' : 'Minecraft',
+        j.kind === 'bsr' ? 'Beat Saber' : gameLabel(d, j.game),
         j.title,
         j.requester || '—',
         j.status + (j.result ? ' — ' + j.result : ''),
