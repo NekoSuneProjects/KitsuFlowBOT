@@ -1,19 +1,19 @@
-# KitsuFlow Voice Companion — desktopapp branch
+# KitsuFlowBOT Assistant (desktopapp branch)
 
-This branch contains only the desktop GUI companion and its Windows x64 / Linux AMD64 packaging. The KitsuFlowBOT dashboard/server, linked streaming platforms and device-pairing API remain on `main`.
+This branch holds only the KitsuFlowBOT Assistant desktop app and its Windows x64 / Linux AMD64 packaging. The KitsuFlowBOT server and Studio stay on `main`.
 
-Download compiled GUI executables from [GitHub Actions](https://github.com/NekoSuneProjects/KitsuFlowBOT/actions/workflows/voice-companion-build.yml?query=branch%3Adesktopapp). No Python installation or console use is needed for downloaded builds. The application reads and writes a local `.env` file and provides a graphical microphone picker, start/stop controls, connectivity information and clip history.
+The Assistant is one app for the stream features that run on your PC: voice-triggered clips, Beat Saber song requests (`!bsr`) and Minecraft Interactive over RCON. It replaces the old single-purpose Voice Companion, and existing device keys keep working.
 
-See [Desktop quick start](voice-companion/QUICKSTART.md) and [app source](voice-companion/companion.py). Install an offline Vosk language model separately; it is not bundled.
+Download builds from [GitHub Releases](https://github.com/NekoSuneProjects/KitsuFlowBOT/releases) or [GitHub Actions](https://github.com/NekoSuneProjects/KitsuFlowBOT/actions/workflows/assistant-build.yml?query=branch%3Adesktopapp). Downloaded builds need no Python install.
 
-Twitch uses the dashboard's official native clipping API. Kick and VPZone currently report unsupported until a verified native clip API becomes available.
+See the [quick start](assistant/QUICKSTART.md) and the [app README](assistant/README.md).
 
 ## Versioned GitHub Releases
 
 Each new `desktopapp-vMAJOR.MINOR.PATCH` Git tag triggers the desktop build workflow for both platforms and publishes a GitHub Release with:
 
-- `KitsuFlowVoiceCompanion-desktopapp-v1.0.0-windows-x64.zip` (Windows GUI executable and .env template)
-- `KitsuFlowVoiceCompanion-desktopapp-v1.0.0-linux-amd64.zip` (Linux GUI executable and .env template)
+- `KitsuFlowBOTAssistant-desktopapp-v1.0.0-windows-x64.zip` (Windows executable, docs and .env template)
+- `KitsuFlowBOTAssistant-desktopapp-v1.0.0-linux-amd64.zip` (Linux executable, docs and .env template)
 - `SHA256SUMS.txt` for ZIP checksums
 
 Replace `1.0.0` with the chosen release version. Example, after updating `desktopapp`:
