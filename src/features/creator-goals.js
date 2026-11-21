@@ -28,6 +28,15 @@ export function installCreatorGoals({ app, db, withUser, csrf, access }) {
       'raid'
     ],
     nekolive: ['follow', 'subscription', 'subscription_renewal', 'cheer', 'donation', 'raid'],
+    beam: [
+      'follow',
+      'subscription',
+      'subscription_renewal',
+      'subscription_gift',
+      'cheer',
+      'donation',
+      'raid'
+    ],
     streamelements: ['donation'],
     streamlabs: ['donation'],
     tipeeestream: ['donation', 'membership'],

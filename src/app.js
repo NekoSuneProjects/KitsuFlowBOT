@@ -16,6 +16,7 @@ import { registerCommandsPage } from './web/commands-page.js';
 import { registerPages } from './web/pages.js';
 import { installPlatforms } from './platforms/index.js';
 import { installNekoLive } from './platforms/nekolive.js';
+import { installBeam } from './platforms/beam.js';
 import { installTikTokInbound } from './platforms/tiktok/inbound.js';
 import { installAccess } from './features/access.js';
 import { installStreamActivity } from './features/stream-activity.js';
@@ -189,6 +190,7 @@ export function startServer() {
   };
   const platformRuntime = installPlatforms({ ...platformDeps, twitchApi: api });
   const nekoliveRuntime = installNekoLive(platformDeps);
+  const beamRuntime = installBeam(platformDeps);
   multichat.setProviderStatus(channel => {
     const bot = eventsub.botSocket();
     return {
@@ -204,6 +206,7 @@ export function startServer() {
       },
       ...platformRuntime.chatStatus(channel),
       nekolive: nekoliveRuntime.chatStatus(channel),
+      beam: beamRuntime.chatStatus(channel),
       tiktok: (() => {
         const status = tiktok.status(channel);
         return {

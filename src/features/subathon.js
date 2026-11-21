@@ -27,6 +27,15 @@ export function installSubathon({ app, db, withUser, csrf, access, log }) {
     kick: ['follow', 'subscription', 'subscription_renewal', 'subscription_gift', 'kicks'],
     vpzone: ['follow', 'subscription', 'subscription_gift', 'donation', 'raid'],
     nekolive: ['follow', 'subscription', 'subscription_renewal', 'cheer', 'donation', 'raid'],
+    beam: [
+      'follow',
+      'subscription',
+      'subscription_renewal',
+      'subscription_gift',
+      'cheer',
+      'donation',
+      'raid'
+    ],
     streamelements: ['donation'],
     streamlabs: ['donation'],
     tipeeestream: ['donation', 'membership'],

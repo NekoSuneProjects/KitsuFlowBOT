@@ -356,3 +356,17 @@ main {
 .platform-nekolive .connection-brand {
   background: #b0407d;
 }
+
+/* BEAM */
+.platform-beam {
+  border-left-color: #ff8a3d;
+}
+.platform.beam {
+  background: #9a4a12;
+}
+#feed .message:has(.platform.beam) {
+  border-left-color: #ff8a3d;
+}
+.platform-beam .connection-brand {
+  background: #c25a17;
+}

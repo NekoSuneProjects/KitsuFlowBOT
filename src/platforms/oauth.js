@@ -21,8 +21,8 @@ export const providers = {
   }
 };
 export const clean = s => String(s ?? '').slice(0, 250);
-const pkce = () => crypto.randomBytes(48).toString('base64url');
-const hash = s => crypto.createHash('sha256').update(s).digest('base64url');
+export const pkce = () => crypto.randomBytes(48).toString('base64url');
+export const hash = s => crypto.createHash('sha256').update(s).digest('base64url');
 export const conf = type => {
   const p = providers[type];
   if (!p) return null;

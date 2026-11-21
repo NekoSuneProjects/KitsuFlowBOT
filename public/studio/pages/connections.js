@@ -182,6 +182,41 @@ export async function connections() {
     else row.append(e('span', 'Not configured', 'pill'));
     providerCard.append(row);
   }
+  const beam = await api('/api/beam').catch(() => null);
+  if (beam) {
+    const status = beam.linked
+      ? 'Linked: ' +
+        beam.linked.slug +
+        ' · Events ' +
+        (beam.chat?.status === 'connected' ? 'connected' : beam.chat?.detail || 'disconnected') +
+        ' · ' +
+        (beam.bot ? 'Bot @' + beam.bot.display_name : 'BEAM bot not linked by admin yet')
+      : beam.configured
+        ? 'Ready for OAuth connection'
+        : 'Set BEAM_CLIENT_ID and BEAM_CLIENT_SECRET on the server';
+    const row = h('div', 'list-row', h('div', '', e('strong', 'BEAM'), e('div', status, 'tiny')));
+    if (beam.linked) {
+      row.append(
+        actions(
+          btn('Send test message', async () => {
+            await api('/api/beam/chat', 'POST', {});
+            notify('BEAM bot message sent');
+          }),
+          btn(
+            'Disconnect',
+            async () => {
+              if (!confirm('Disconnect BEAM?')) return;
+              await api('/api/beam/disconnect', 'POST');
+              await reloadView();
+            },
+            'danger'
+          )
+        )
+      );
+    } else if (beam.configured) row.append(link('Connect BEAM', '/auth/beam', 'primary'));
+    else row.append(e('span', 'Not configured', 'pill'));
+    providerCard.append(row);
+  }
   const tiktokConfig = await api('/api/tiktok-inbound').catch(() => ({
     username: '',
     enabled: false,

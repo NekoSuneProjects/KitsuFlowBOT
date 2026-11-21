@@ -34,6 +34,15 @@ export function installStreamBoss({ app, db, withUser, csrf, access, log }) {
       'raid'
     ],
     nekolive: ['subscription', 'subscription_renewal', 'cheer', 'donation', 'follow', 'raid'],
+    beam: [
+      'subscription',
+      'subscription_renewal',
+      'subscription_gift',
+      'cheer',
+      'donation',
+      'follow',
+      'raid'
+    ],
     streamelements: ['donation'],
     streamlabs: ['donation'],
     tipeeestream: ['donation', 'membership'],

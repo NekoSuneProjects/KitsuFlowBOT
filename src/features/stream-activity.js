@@ -22,12 +22,13 @@ export function installStreamActivity({ app, db, withUser, access }) {
     kicks: 'Thanks for the Kicks, {user}!',
     raid: 'Welcome raiders from {user}!'
   };
-  const platforms = ['twitch', 'kick', 'vpzone', 'nekolive'];
+  const platforms = ['twitch', 'kick', 'vpzone', 'nekolive', 'beam'];
   const allowed = {
     twitch: ['follow', 'subscription', 'subscription_gift', 'cheer', 'raid'],
     kick: ['follow', 'subscription', 'subscription_gift', 'kicks'],
     vpzone: ['follow', 'subscription', 'raid'],
-    nekolive: ['follow', 'subscription', 'cheer', 'raid']
+    nekolive: ['follow', 'subscription', 'cheer', 'raid'],
+    beam: ['follow', 'subscription', 'subscription_gift', 'cheer', 'raid']
   };
   const senders = new Map();
   let activityListener = null;

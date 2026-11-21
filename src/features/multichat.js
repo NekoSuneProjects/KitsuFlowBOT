@@ -186,8 +186,10 @@ export function installMultichat({ app, db, withUser, csrf, access }) {
       cooldown < 0 ||
       cooldown > 600 ||
       !Array.isArray(platforms) ||
-      platforms.length > 5 ||
-      platforms.some(p => !['twitch', 'kick', 'vpzone', 'nekolive', 'tiktok'].includes(p)) ||
+      platforms.length > 6 ||
+      platforms.some(
+        p => !['twitch', 'kick', 'vpzone', 'nekolive', 'beam', 'tiktok'].includes(p)
+      ) ||
       new Set(platforms).size !== platforms.length ||
       !/^[a-zA-Z]{2,4}(?:-[a-zA-Z0-9]{2,8})*$/.test(lang)
     )
@@ -317,7 +319,7 @@ export function installMultichat({ app, db, withUser, csrf, access }) {
     });
   });
   function observe(channel, platform, sender, content, metadata = {}) {
-    if (!['twitch', 'kick', 'vpzone', 'nekolive', 'tiktok'].includes(platform)) return;
+    if (!['twitch', 'kick', 'vpzone', 'nekolive', 'beam', 'tiktok'].includes(platform)) return;
     const msg = String(content || '')
       .trim()
       .slice(0, 350);

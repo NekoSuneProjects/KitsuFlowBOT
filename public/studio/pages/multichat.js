@@ -103,7 +103,7 @@ export async function multichat() {
     multi.tts_template || '{username} says {message}'
   );
   const ttsPlatforms = {};
-  for (const p of ['twitch', 'kick', 'vpzone', 'nekolive'])
+  for (const p of ['twitch', 'kick', 'vpzone', 'nekolive', 'beam'])
     ttsPlatforms[p] = input(
       'Read ' + p.toUpperCase() + ' chat',
       multi.tts_platforms?.includes(p) ?? true,

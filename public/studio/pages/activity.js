@@ -41,11 +41,11 @@ export async function activity() {
     follow: 'New follower',
     subscription: 'New subscription',
     subscription_gift: 'Gifted subscriptions',
-    cheer: 'Bits / NyaTreats',
+    cheer: 'Bits / NyaTreats / Embers',
     kicks: 'Kick Kicks',
     raid: 'Raid'
   };
-  for (const platform of ['twitch', 'kick', 'vpzone', 'nekolive']) {
+  for (const platform of ['twitch', 'kick', 'vpzone', 'nekolive', 'beam']) {
     const group = h('section', 'kf-settings-section', e('h3', platform.toUpperCase()));
     for (const entry of config.settings.filter(x => x.platform === platform)) {
       const toggle = input(

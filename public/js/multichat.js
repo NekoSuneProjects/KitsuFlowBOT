@@ -62,9 +62,10 @@
       kick: 'Kick',
       vpzone: 'VPZone',
       nekolive: 'NekoLive',
+      beam: 'BEAM',
       tiktok: 'TikTok'
     };
-    for (const platform of ['twitch', 'kick', 'vpzone', 'nekolive', 'tiktok']) {
+    for (const platform of ['twitch', 'kick', 'vpzone', 'nekolive', 'beam', 'tiktok']) {
       const raw = data?.[platform]?.status || 'pending';
       const value = ['connected', 'pending', 'failed'].includes(raw) ? raw : 'pending';
       const item = document.createElement('div');
@@ -88,7 +89,9 @@
               ? '♪'
               : platform === 'nekolive'
                 ? 'N'
-                : 'V';
+                : platform === 'beam'
+                  ? 'B'
+                  : 'V';
       const name = document.createElement('span');
       name.className = 'connection-name';
       name.textContent = names[platform];

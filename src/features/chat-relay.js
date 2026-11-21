@@ -12,7 +12,7 @@ export function installRelay({ app, db, withUser, csrf, access, isOperator, log,
     db
       .prepare('SELECT joins,alerts FROM chat_relay_event_preferences WHERE channel=?')
       .get(channel) || { joins: 0, alerts: 0 };
-  const supported = new Set(['twitch', 'kick', 'vpzone', 'nekolive', 'tiktok']),
+  const supported = new Set(['twitch', 'kick', 'vpzone', 'nekolive', 'beam', 'tiktok']),
     senders = new Map(),
     recent = new Map();
   const register = (platform, fn) => senders.set(platform, fn);

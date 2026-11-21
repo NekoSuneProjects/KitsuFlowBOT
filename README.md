@@ -368,3 +368,29 @@ The broadcaster links their NekoLive channel to their Twitch-based creator profi
 **Limitations**
 - NekoLive alerts carry no event ID, so they can't be deduplicated across reconnects.
 - Stream title/game sync and voice clips are Twitch/Kick/VPZone only for now. NekoLive now offers `PATCH /api/oauth/channel` (`channel:edit`) and a clip API, which could be added next.
+
+## BEAM integration
+
+BEAM (beamstream.gg) is linked like Kick, VPZone and NekoLive. The broadcaster connects their BEAM channel to their Twitch-based creator profile, and a **dedicated BEAM bot account** posts in chat. BEAM's send endpoint always posts as the account whose token is used, so a broadcaster grant alone would make messages appear from the streamer. Code lives in `src/platforms/beam.js`, built against BEAM's OpenAPI schema (https://developers.beamstream.gg/openapi.json).
+
+**What works**
+- **Linking:** OAuth 2.0 with PKCE (S256). Broadcaster scopes are `channel:read chat:read support:read`; the bot uses `profile chat:write`. Access tokens refresh automatically. BEAM rotates refresh tokens and revokes the grant if an old one is reused, so parallel requests share a single refresh.
+- **Incoming events** over server-sent events (`/v1/events/sse`), one connection per topic per channel (`chat`, `channel`, `support`). Connections resume from the last cursor, honour `beam.reconnect`, report `beam.error`, and are restarted if no keepalive arrives for 45 s.
+- **Chat relay, multi-chat and TTS** include BEAM as a source and a target.
+- **Custom commands** run with their permission level, because BEAM's `roles` (broadcaster, moderator, VIP, subscriber) come from BEAM itself.
+- **Events:** follows, raids, tips (Embers/Sparks → Bits-style cheer, fiat → donation), paid chat items, subscriptions and renewals, gifted subscriptions and reward redemptions feed the activity feed. From there they drive OBS alerts, subathon, Stream Boss, goals and chat announcements (all off by default). Event IDs deduplicate them; refunds (`reverses`) are ignored.
+- **Unified chat:** BEAM also delivers chat and support from linked Twitch/YouTube accounts. KitsuFlowBOT already receives those directly, so only items with platform `beam` are used, which avoids double relays and double alerts.
+
+**Setup**
+1. Register an app at https://developers.beamstream.gg with both redirect URLs: `BASE_URL/auth/beam/callback` and `BASE_URL/auth/beam-bot/callback`.
+2. Put the app ID (`app_…`) and secret in `.env` as `BEAM_CLIENT_ID` / `BEAM_CLIENT_SECRET`, then restart.
+3. Create a separate BEAM account for the bot. In **Admin Panel → Shared Kick / VPZone bot accounts → BEAM**, click **Connect bot** and sign in as that account.
+4. The streamer opens **Connections → BEAM → Connect BEAM**, approves, then uses **Send test message**.
+
+**Limitations**
+- No moderation: BEAM's public API has no ban or timeout endpoints, so `!ban`, `!timeout`, link protection and scam protection don't apply on BEAM.
+- Built-in Twitch commands (`!uptime`, `!followage`, `!clip`, …) stay Twitch-only. BEAM exposes channel/stream data and clips are read-only, so these would need separate BEAM versions.
+- Go-live/offline events are not used yet (the activity feed has no live-state type).
+- Each linked channel opens three SSE connections. For many channels, a single app-level selector with `granted_channels` would scale better; it needs a BEAM restricted key.
+- Not yet tested against a real BEAM channel; verified against a mock built from the OpenAPI schema.
+

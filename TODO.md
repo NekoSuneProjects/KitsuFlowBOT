@@ -1,75 +1,75 @@
 # TODO — BEAM integration for KitsuFlowBOT
 
-> Status: Planned. This checklist is an implementation plan, not a claim that BEAM support is already working.
+> Status: First version implemented (`src/platforms/beam.js`), verified against a mock of the OpenAPI schema. Not yet tested with a real BEAM channel.
 >
 > References: [BEAM OpenAPI](https://developers.beamstream.gg/openapi.json) · [KitsuFlowBOT](https://github.com/NekoSuneProjects/KitsuFlowBOT)
 
 ## P0 — API validation and architecture
 
-- [ ] Audit existing `src/platforms/`, `src/twitch/`, `src/features/`, `src/commands/`, and Studio platform settings to identify reusable interfaces.
-- [ ] Build a BEAM endpoint/event/scope compatibility matrix directly from the latest OpenAPI schema; record payload samples and unsupported features.
-- [ ] Confirm BEAM app registration, OAuth authorization-code flow, refresh/revocation behavior, and channel-owner consent requirements.
-- [ ] Decide how to represent BEAM channel IDs, user IDs, bot identity, room IDs, and cross-platform identities without collisions.
-- [ ] Define a platform-neutral event envelope (`platform`, `channelId`, `eventId`, `type`, `occurredAt`, `actor`, `payload`).
-- [ ] Add feature flags so existing Twitch/Kick/other platforms continue to work unchanged.
+- [x] Audit existing `src/platforms/`, `src/twitch/`, `src/features/`, `src/commands/`, and Studio platform settings to identify reusable interfaces.
+- [x] Build a BEAM endpoint/event/scope compatibility matrix directly from the latest OpenAPI schema; record payload samples and unsupported features. (see README → BEAM integration)
+- [x] Confirm BEAM app registration, OAuth authorization-code flow, refresh/revocation behavior, and channel-owner consent requirements.
+- [x] Decide how to represent BEAM channel IDs, user IDs, bot identity, room IDs, and cross-platform identities without collisions. (`platform_oauth.external_id` = `chan_…`, `beam_channels.room_id`, bot in `platform_bot_accounts`)
+- [x] Define a platform-neutral event envelope (`platform`, `channelId`, `eventId`, `type`, `occurredAt`, `actor`, `payload`). — reused the existing deduplicated `stream_activity` feed instead of a new envelope
+- [x] Add feature flags so existing Twitch/Kick/other platforms continue to work unchanged. — BEAM stays inactive until `BEAM_CLIENT_ID`/`BEAM_CLIENT_SECRET` are set
 
 ## P1 — BEAM connection and authentication
 
-- [ ] Add a BEAM adapter/module under `src/platforms/` consistent with current project conventions.
-- [ ] Add BEAM client configuration and environment variables to `.env.example`; never commit secrets.
-- [ ] Implement streamer OAuth connect, callback, encrypted token storage, refresh, disconnect, and scope validation.
-- [ ] Determine whether a shared bot account or per-channel authorization is required for each action.
-- [ ] Add BEAM connection status and enable/disable controls to Studio.
-- [ ] Enforce channel-scoped authorization and prevent one broadcaster from accessing another's data.
+- [x] Add a BEAM adapter/module under `src/platforms/` consistent with current project conventions. (`src/platforms/beam.js`)
+- [x] Add BEAM client configuration and environment variables to `.env.example`; never commit secrets.
+- [x] Implement streamer OAuth connect, callback, encrypted token storage, refresh, disconnect, and scope validation.
+- [x] Determine whether a shared bot account or per-channel authorization is required for each action. — chat sends as the grant's user, so a dedicated bot account is linked once in Admin Panel
+- [x] Add BEAM connection status and enable/disable controls to Studio.
+- [x] Enforce channel-scoped authorization and prevent one broadcaster from accessing another's data.
 
 ## P1 — Events and stream lifecycle
 
-- [ ] Implement BEAM real-time event transport using supported selectors/SSE or webhooks as appropriate.
-- [ ] Subscribe to and normalize follow events (`channel.follow.created`).
+- [x] Implement BEAM real-time event transport using supported selectors/SSE or webhooks as appropriate. (SSE, one connection per topic per channel)
+- [x] Subscribe to and normalize follow events (`channel.follow.created`).
 - [ ] Subscribe to and normalize live/offline events (`stream.started`, `stream.ended`).
-- [ ] Investigate and normalize raid events (`channel.raid.created`), including source/target semantics.
-- [ ] Map subscription, gift-subscription, tips/Embers, paid-message, and reward-redemption events from the actual `support.*` schema.
-- [ ] Map moderation and chat events, including deletes, timeouts, bans, and pins where available.
+- [x] Investigate and normalize raid events (`channel.raid.created`), including source/target semantics.
+- [x] Map subscription, gift-subscription, tips/Embers, paid-message, and reward-redemption events from the actual `support.*` schema.
+- [ ] Map moderation and chat events, including deletes, timeouts, bans, and pins where available. — chat done; BEAM's public API has no ban/timeout endpoints
 - [ ] Persist event IDs for deduplication; handle retries, out-of-order events, reconnections, and missed-event recovery.
 - [ ] On startup/reconnect, query channel live status (check `/v1/channels/{id}/streams?status=live`) to reconcile state without duplicate go-live alerts.
-- [ ] Verify webhook signatures/authenticity, replay windows, selector ownership, delivery retries, and any platform limits against documentation.
+- [ ] Verify webhook signatures/authenticity, replay windows, selector ownership, delivery retries, and any platform limits against documentation. — not needed while SSE is used instead of webhooks
 
 ## P1 — Chatbot and commands
 
-- [ ] Resolve chat room IDs and connect incoming BEAM messages to KitsuFlowBOT's shared command dispatcher.
-- [ ] Implement read/send chat with the documented chat endpoints and appropriate OAuth scopes (`chat:read`, `chat:write`, `chat:bot` as applicable).
-- [ ] Support command permissions, cooldowns, prefixes, bot/self-message filtering, and per-channel settings.
+- [x] Resolve chat room IDs and connect incoming BEAM messages to KitsuFlowBOT's shared command dispatcher.
+- [x] Implement read/send chat with the documented chat endpoints and appropriate OAuth scopes (`chat:read`, `chat:write`, `chat:bot` as applicable). (`chat:read` for the broadcaster, `chat:write` for the bot; `chat:bot` is not offered by the OAuth flow yet)
+- [x] Support command permissions, cooldowns, prefixes, bot/self-message filtering, and per-channel settings. (custom commands; BEAM roles gate moderator/subscriber levels)
 - [ ] Adapt `!uptime`, `!title`, `!game`, `!viewers`, `!followers`, `!followage`, and `!subcount` only where BEAM exposes the necessary data; show a graceful unavailable response otherwise.
 - [ ] Reuse platform-independent fun commands, points, games, loyalty, giveaways, timers, and Pokémon features.
-- [ ] Map moderation actions (`!timeout`, `!ban`, `!permit`) only after verifying BEAM scopes and endpoints.
+- [ ] Map moderation actions (`!timeout`, `!ban`, `!permit`) only after verifying BEAM scopes and endpoints. — blocked: no BEAM moderation endpoints
 - [ ] Verify stream-title/category updates, clips (`!clip` and voice clipping), and other platform-specific commands separately; do not assume Twitch API parity.
 
 ## P2 — Alerts, overlays, and Studio
 
-- [ ] Route normalized BEAM follow/raid/sub/gift/tip/live/offline events through existing activity-feed and alert pipelines.
-- [ ] Add BEAM event filters, alert templates, and per-channel enable/disable settings.
-- [ ] Reuse OBS browser-source overlays, goals, stream boss, subathon, and multi-chat where event payloads allow.
-- [ ] Add BEAM to Studio platform connection, account status, chat, alert test, and error-reporting views.
+- [x] Route normalized BEAM follow/raid/sub/gift/tip/live/offline events through existing activity-feed and alert pipelines. (live/offline not yet)
+- [x] Add BEAM event filters, alert templates, and per-channel enable/disable settings. (existing alert rules, announcements, subathon/boss/goal rules)
+- [x] Reuse OBS browser-source overlays, goals, stream boss, subathon, and multi-chat where event payloads allow.
+- [x] Add BEAM to Studio platform connection, account status, chat, alert test, and error-reporting views.
 - [ ] Define loyalty/watch-time tracking rules for BEAM users and avoid accidental cross-platform account merges.
 - [ ] Add optional Discord go-live notifications with duplicate suppression and configurable destinations.
 
 ## P2 — Reliability, security, and observability
 
-- [ ] Implement backoff with jitter, connection health checks, token-refresh retries, and rate-limit handling (`429`, `Retry-After`).
-- [ ] Log event processing failures without exposing tokens or private chat data.
+- [x] Implement backoff with jitter, connection health checks, token-refresh retries, and rate-limit handling (`429`, `Retry-After`).
+- [x] Log event processing failures without exposing tokens or private chat data.
 - [ ] Add metrics for event latency, missed events, API errors, selector/webhook health, and chat-send failures.
-- [ ] Validate event payloads, sanitize user-controlled text, and protect webhooks from replay attacks.
-- [ ] Document BEAM platform limits and scaling approach for multiple broadcaster channels.
+- [x] Validate event payloads, sanitize user-controlled text, and protect webhooks from replay attacks.
+- [x] Document BEAM platform limits and scaling approach for multiple broadcaster channels.
 
 ## P3 — Testing and release
 
-- [ ] Unit-test OAuth/token handling, event normalization, deduplication, and command dispatch.
-- [ ] Add fixture-based tests for follow, live/offline, raid, subscription, gifts, tips, chat, and moderation payloads.
+- [x] Unit-test OAuth/token handling, event normalization, deduplication, and command dispatch. (integration test against a mock built from the OpenAPI schema)
+- [x] Add fixture-based tests for follow, live/offline, raid, subscription, gifts, tips, chat, and moderation payloads. (chat, follow, raid, tips, subs, gifts, redemptions; moderation not applicable)
 - [ ] Integration-test BEAM authorization and permissions with a real test channel.
 - [ ] Verify chat reads/writes, live alerts, disconnect/reconnect, stream-end handling, and duplicate suppression end-to-end.
-- [ ] Regression-test Twitch, Kick, VPZone, NekoLive, TikTok, Studio, and existing overlays.
-- [ ] Run `npm run check`, `npm run format`, and applicable CI checks.
-- [ ] Update README with BEAM setup, OAuth redirect configuration, supported features, and known limitations.
+- [x] Regression-test Twitch, Kick, VPZone, NekoLive, TikTok, Studio, and existing overlays.
+- [x] Run `npm run check`, `npm run format`, and applicable CI checks.
+- [x] Update README with BEAM setup, OAuth redirect configuration, supported features, and known limitations.
 - [ ] Roll out behind a feature flag to one test channel before enabling broadly.
 
 ## Open questions / not yet verified

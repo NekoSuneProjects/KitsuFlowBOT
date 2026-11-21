@@ -159,6 +159,43 @@ export async function admin() {
       )
     )
   );
+  const bb = await api('/api/admin/beam/bot').catch(() => ({ configured: false, bot: null }));
+  platformBots.append(
+    h(
+      'div',
+      'list-row',
+      h(
+        'div',
+        '',
+        e('strong', 'BEAM'),
+        e(
+          'div',
+          bb.bot
+            ? 'Shared bot @' + bb.bot.display_name
+            : bb.configured
+              ? 'Not connected. Sign in with the dedicated BEAM bot account, not a broadcaster.'
+              : 'Set BEAM_CLIENT_ID and BEAM_CLIENT_SECRET first',
+          'tiny'
+        )
+      ),
+      actions(
+        bb.configured
+          ? link(bb.bot ? 'Reauthorise' : 'Connect bot', '/auth/beam-bot', 'primary')
+          : e('span', 'Not configured', 'tiny'),
+        bb.bot
+          ? btn(
+              'Disconnect',
+              async () => {
+                if (!confirm('Disconnect the BEAM shared bot?')) return;
+                await api('/api/admin/beam/bot/disconnect', 'POST');
+                await reloadView();
+              },
+              'danger'
+            )
+          : null
+      )
+    )
+  );
   c.append(platformBots);
   c.append(
     actions(

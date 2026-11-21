@@ -15,7 +15,7 @@ export function registerPages(app) {
   app.get('/api/build-info', (req, res) =>
     res.set('Cache-Control', 'no-store').json({
       version: process.env.GITHUB_SHA || process.env.APP_VERSION || 'local',
-      providers: ['twitch', 'kick', 'vpzone', 'nekolive']
+      providers: ['twitch', 'kick', 'vpzone', 'nekolive', 'beam']
     })
   );
   app.use(

@@ -147,7 +147,7 @@ export async function subathon() {
     subscription: 'Subscription',
     subscription_renewal: 'Resub / renewal',
     subscription_gift: 'Gifted subscriptions',
-    cheer: 'Bits / NyaTreats',
+    cheer: 'Bits / NyaTreats / Embers',
     kicks: 'Kick Kicks',
     follow: 'Follow',
     raid: 'Raid',

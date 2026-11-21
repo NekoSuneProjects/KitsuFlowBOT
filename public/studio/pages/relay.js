@@ -106,7 +106,7 @@ export async function relay() {
     (relayData.routes || []).filter(r => r.enabled).flatMap(r => [r.source, r.target])
   );
   const selected = {};
-  for (const platform of ['twitch', 'kick', 'vpzone', 'nekolive', 'tiktok'])
+  for (const platform of ['twitch', 'kick', 'vpzone', 'nekolive', 'beam', 'tiktok'])
     selected[platform] = input(
       'Include ' + platform.toUpperCase() + (platform === 'tiktok' ? ' (receive only)' : ''),
       active.has(platform),
