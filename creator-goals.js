@@ -9,7 +9,7 @@ export function installCreatorGoals({app,db,withUser,csrf,access}){
  CREATE INDEX IF NOT EXISTS creator_goals_channel ON creator_goals(channel,status,id);
  CREATE TABLE IF NOT EXISTS creator_goal_progress(
  goal_id INTEGER NOT NULL,activity_id TEXT NOT NULL,PRIMARY KEY(goal_id,activity_id));`);
- const capability={twitch:['follow','subscription','subscription_renewal','subscription_gift','cheer','raid'],kick:['follow','subscription','subscription_renewal','subscription_gift','kicks','raid'],vpzone:['follow','subscription','subscription_renewal','subscription_gift','donation','raid'],streamelements:['donation'],streamlabs:['donation'],tipeeestream:['donation','membership'],kofi:['donation','membership','purchase'],patreon:['membership','membership_update']};
+ const capability={twitch:['follow','subscription','subscription_renewal','subscription_gift','cheer','raid'],kick:['follow','subscription','subscription_renewal','subscription_gift','kicks','raid'],vpzone:['follow','subscription','subscription_renewal','subscription_gift','donation','raid'],nekolive:['follow','subscription','subscription_renewal','cheer','donation','raid'],streamelements:['donation'],streamlabs:['donation'],tipeeestream:['donation','membership'],kofi:['donation','membership','purchase'],patreon:['membership','membership_update']};
  const validUnits=['events','amount'];
  const list=channel=>db.prepare('SELECT * FROM creator_goals WHERE channel=? ORDER BY CASE status WHEN \'active\' THEN 0 WHEN \'paused\' THEN 1 ELSE 2 END,id DESC').all(channel);
  function onActivity(channel,platform,event,actor,detail,activityId){

@@ -22,6 +22,7 @@ jobs:
           node --check public/invite.js
           node --check public/studio.js
           node --check platform-integrations.js
+          node --check nekolive-integration.js
           node --check voice.js
           node --check creator-tools.js
           node --check public/multichat.js

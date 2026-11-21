@@ -13,6 +13,7 @@ export function installStreamAlerts({app,db,withUser,csrf,access}){
  const types={twitch:['follow','subscription','subscription_renewal','subscription_gift','cheer','raid'],
  kick:['follow','subscription','subscription_renewal','subscription_gift','kicks','raid'],
  vpzone:['follow','subscription','subscription_renewal','subscription_gift','donation','raid'],
+ nekolive:['follow','subscription','subscription_renewal','cheer','donation','raid'],
  streamelements:['donation'],streamlabs:['donation'],tipeeestream:['donation','membership'],
  kofi:['donation','membership','purchase'],patreon:['membership','membership_update','membership_end']};
  const ensure=channel=>db.prepare('INSERT OR IGNORE INTO stream_alert_settings(channel,public_key) VALUES(?,?)').run(channel,crypto.randomBytes(24).toString('hex'));

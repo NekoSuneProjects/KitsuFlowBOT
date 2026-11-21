@@ -5,7 +5,7 @@ export function installRelay({app,db,withUser,csrf,access,isOperator,log,observe
  db.exec('CREATE TABLE IF NOT EXISTS chat_relay_global(channel TEXT PRIMARY KEY,enabled INTEGER NOT NULL DEFAULT 0)');
  db.exec('CREATE TABLE IF NOT EXISTS chat_relay_event_preferences(channel TEXT PRIMARY KEY,joins INTEGER NOT NULL DEFAULT 0,alerts INTEGER NOT NULL DEFAULT 0)');
  const preferences=channel=>db.prepare('SELECT joins,alerts FROM chat_relay_event_preferences WHERE channel=?').get(channel)||{joins:0,alerts:0};
- const supported=new Set(['twitch','kick','vpzone','tiktok']), senders=new Map(),recent=new Map();
+ const supported=new Set(['twitch','kick','vpzone','nekolive','tiktok']), senders=new Map(),recent=new Map();
  const register=(platform,fn)=>senders.set(platform,fn);
  const identityPrefix='[KitsuFlow relay ';
  async function relay(channel,source,username,content,{isBot=false,fragments=[],kind='chat'}={}){

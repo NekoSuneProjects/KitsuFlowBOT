@@ -21,6 +21,7 @@ import {installPokemon} from './pokemon-game.js';
 import {EXTRA_COMMANDS,createExtraCommands} from './global-commands-extra.js';
 import {installAccess} from './access.js';
 import {installPlatforms} from './platform-integrations.js';
+import {installNekoLive} from './nekolive-integration.js';
 import {installRelay} from './chat-relay.js';
 import {installTikTokInbound} from './tiktok-inbound.js';
 import {installCreatorTools} from './creator-tools.js';
@@ -506,13 +507,14 @@ installVoiceCompanion({app,db,withUser,csrf,access,api,clip,log,say});
 const pokemon=installPokemon({app,db,withUser,csrf,access,api,say,log,isOperator,botId});
 const chatClip=installChatClip({app,db,withUser,csrf,access,api,clip,log,say});
 const platformRuntime=installPlatforms({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,relay,streamActivity,twitchApi:api});
+const nekoliveRuntime=installNekoLive({app,db,withUser,csrf,access,enc,dec,log,base:BASE,isOperator,relay,streamActivity});
 creatorTools.setProviderStatus(channel=>{
  const bot=sockets.get('bot');
- return {twitch:{status:!botId()?'pending':bot?.readyState===WebSocket.OPEN?'connected':bot?.readyState===WebSocket.CONNECTING?'pending':'failed',detail:!botId()?'Shared bot not connected':'Twitch EventSub session'},...platformRuntime.chatStatus(channel),tiktok:(()=>{const status=tiktokRuntime.status(channel);return {status:status.status==='connected'?'connected':status.status==='error'?'failed':'pending',detail:status.status+(status.username?' @'+status.username:'')}})()};
+ return {twitch:{status:!botId()?'pending':bot?.readyState===WebSocket.OPEN?'connected':bot?.readyState===WebSocket.CONNECTING?'pending':'failed',detail:!botId()?'Shared bot not connected':'Twitch EventSub session'},...platformRuntime.chatStatus(channel),nekolive:nekoliveRuntime.chatStatus(channel),tiktok:(()=>{const status=tiktokRuntime.status(channel);return {status:status.status==='connected'?'connected':status.status==='error'?'failed':'pending',detail:status.status+(status.username?' @'+status.username:'')}})()};
 });
 app.get('/dashboard',(req,res)=>{res.set('Cache-Control','no-store, max-age=0');return req.session.uid?res.sendFile(path.resolve('public/dashboard.html')):res.redirect('/login')});
 app.get('/login',(req,res)=>req.session.uid?res.redirect('/dashboard'):res.sendFile(path.resolve('public/login.html')));
-app.get('/api/build-info',(req,res)=>res.set('Cache-Control','no-store').json({version:process.env.GITHUB_SHA||process.env.APP_VERSION||'local',providers:['twitch','kick','vpzone']}));
+app.get('/api/build-info',(req,res)=>res.set('Cache-Control','no-store').json({version:process.env.GITHUB_SHA||process.env.APP_VERSION||'local',providers:['twitch','kick','vpzone','nekolive']}));
 app.use(express.static('public',{index:'index.html',redirect:false,setHeaders:(res,file)=>{if(/(?:studio\.js|dashboard\.html)$/.test(file))res.setHeader('Cache-Control','no-store, max-age=0')}}));app.listen(PORT,()=>console.log('KitsuFlowBOT on '+PORT));connectChat();
 // Safety net: if the bot socket is gone and no retry is scheduled, bring it back.
 setInterval(()=>{const ws=sockets.get('bot');if(botId()&&!chatRetry&&(!ws||ws.readyState===WebSocket.CLOSED)){console.warn('Chat EventSub health check: socket missing, reconnecting');void connectChat().catch(err=>console.error('Chat reconnect:',err.message))}},60000).unref?.();

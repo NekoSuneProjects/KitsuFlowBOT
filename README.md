@@ -310,3 +310,25 @@ Studio has a dedicated **Creator Goals** page. A broadcaster can create any numb
 Studio navigation is now more focused: **Connections** is for account/bot linking and OAuth verification only. **Stream Title & Game** contains multi-platform metadata updates, AI title suggestions and the OBS control dock. **Multi-chat & TTS** contains the OBS source, speech settings and voice selection. **Chat Relay** contains routing, history, event preferences, diagnostics and cross-platform activity. **Alerts & Donations** remains the separate payment and alert configuration page. **Voice & Clips** displays a prominent Desktop companion **Alpha / Work in progress** warning with a link to report bugs at https://github.com/NekoSuneProjects/KitsuFlowBOT/issues/new.
 
 This functionality is in PR #59 only. Do not merge until explicitly approved.
+
+## NekoLive integration
+
+NekoLive works like the Kick and VPZone integrations: the broadcaster links their NekoLive channel to their Twitch-based creator profile, and one shared bot posts to chat. Code lives in `nekolive-integration.js`.
+
+**What works**
+- **Incoming chat** is read from NekoLive's public chat WebSocket (`/chat/channel/<name>`). It needs no login and is restored after restarts. Emote markup is reduced to `:code:` text and never forwarded as HTML.
+- **Custom commands** with permission `everyone` run in NekoLive chat, with their normal cooldown. Moderator/subscriber commands are skipped on purpose: NekoLive's chat roles come from a client-supplied user ID, so they can't be trusted yet.
+- **Chat relay, multi-chat and TTS** include NekoLive as a source and a target.
+- **Alerts** map into the activity feed: `follow` → follow, `subscribe` → subscription, `resubscribe` → resub, `nyatreats` → Bits-style cheer (with amount), `donations` → donation, `raid_trigger` → raid. They drive OBS alerts, the subathon, the Stream Boss, goals and chat announcements (all off by default).
+
+**Setup**
+1. On NekoLive, create an OAuth client row (`OAuthClients`). Set `redirect_uri` to exactly `BASE_URL/auth/nekolive/callback` and allow scope `channel:read`. The scope must also exist in `OAuthScopes` with `is_default=1`.
+2. Set `NEKOLIVE_BASE_URL`, `NEKOLIVE_CLIENT_ID`, `NEKOLIVE_CLIENT_SECRET` (and optionally `NEKOLIVE_AUTH_SCOPES`) in `.env`, then restart.
+3. In NekoLive **Admin → Partnership**, create a bot token. Paste it in KitsuFlowBOT **Admin Panel → Shared Kick / VPZone bot accounts → NEKOLIVE**.
+4. For each channel the bot should post in, NekoLive needs an active `BotPermissions` row with `botId=<bot id>` and `channelId=<lowercase channel name>`. NekoLive has no UI for this yet. Without it, sends fail with a clear "no active bot permission" error.
+5. The streamer opens **Connections → NekoLive → Connect NekoLive**. They must already be signed in to NekoLive in the same browser, because NekoLive's authorise page redirects to its login and drops the request otherwise.
+
+**Known NekoLive-side limitations**
+- Bot posts appear as **NekoAI**, not the bot's own name, because NekoLive's `broadcastMessageStaffBOT` overwrites the sender. KitsuFlowBOT ignores `nekoai` messages, so relays can't loop.
+- NekoLive alerts carry no event ID, so they can't be deduplicated across reconnects.
+- Stream title/game sync and voice clips are Twitch/Kick/VPZone only for now. NekoLive has a clip API (`/api/clips`) that could be added next.

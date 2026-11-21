@@ -90,8 +90,8 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
   const template=String(req.body.tts_template||'{username} says {message}').slice(0,220);
   const platforms=req.body.tts_platforms??['twitch','kick','vpzone'];
   if(!Number.isFinite(pitch)||pitch<0||pitch>2||!Number.isInteger(maxLength)||maxLength<20||maxLength>500||
-     !Number.isInteger(cooldown)||cooldown<0||cooldown>600||!Array.isArray(platforms)||platforms.length>3||
-     platforms.some(p=>!['twitch','kick','vpzone','tiktok'].includes(p))||new Set(platforms).size!==platforms.length||
+     !Number.isInteger(cooldown)||cooldown<0||cooldown>600||!Array.isArray(platforms)||platforms.length>5||
+     platforms.some(p=>!['twitch','kick','vpzone','nekolive','tiktok'].includes(p))||new Set(platforms).size!==platforms.length||
      !/^[a-zA-Z]{2,4}(?:-[a-zA-Z0-9]{2,8})*$/.test(lang))
    return res.status(400).json({error:'Invalid TTS voice, language or spam settings'});
   db.prepare('UPDATE multichat_sources SET tts_enabled=?,tts_rate=?,tts_volume=?,tts_provider=?,tts_voice=?,tts_lang=?,tts_pitch=?,tts_max_length=?,tts_cooldown=?,tts_template=?,tts_platforms=? WHERE channel=?')
@@ -168,7 +168,7 @@ export function installCreatorTools({app,db,withUser,csrf,access,enc,dec}){
   res.set('Cache-Control','no-store').json({messages,tts_enabled:Boolean(req.source.tts_enabled),tts_rate:req.source.tts_rate,tts_volume:req.source.tts_volume,tts_provider:req.source.tts_provider,tts_voice:req.source.tts_voice,tts_lang:req.source.tts_lang,tts_pitch:req.source.tts_pitch,tts_max_length:req.source.tts_max_length,tts_cooldown:req.source.tts_cooldown,tts_template:req.source.tts_template,tts_platforms:JSON.parse(req.source.tts_platforms||'[]'),connections:providerStatus(req.source.channel)});
  });
  function observe(channel,platform,sender,content,metadata={}){
-  if(!['twitch','kick','vpzone','tiktok'].includes(platform))return;
+  if(!['twitch','kick','vpzone','nekolive','tiktok'].includes(platform))return;
   const msg=String(content||'').trim().slice(0,350);
   if(!msg)return;
   const fragments=Array.isArray(metadata.fragments)?metadata.fragments.slice(0,90).map(f=>({type:String(f.type||'text'),text:String(f.text||'').slice(0,350),id:String(f.emote?.id||f.emote?.emote_id||f.id||'').slice(0,80),url:String(f.url||'').slice(0,300)})):[];

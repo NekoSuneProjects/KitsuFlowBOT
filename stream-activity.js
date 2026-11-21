@@ -15,8 +15,8 @@ export function installStreamActivity({app,db,withUser,access}){
  channel TEXT NOT NULL,platform TEXT NOT NULL,event_type TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 0,
  template TEXT NOT NULL DEFAULT '',PRIMARY KEY(channel,platform,event_type));`);
  const defaults={follow:'Thanks for following, {user}!',subscription:'Thanks for subscribing, {user}!',subscription_gift:'Thanks for gifting subscriptions, {user}!',cheer:'Thanks for the Bits, {user}!',kicks:'Thanks for the Kicks, {user}!',raid:'Welcome raiders from {user}!'};
- const platforms=['twitch','kick','vpzone'];
- const allowed={twitch:['follow','subscription','subscription_gift','cheer','raid'],kick:['follow','subscription','subscription_gift','kicks'],vpzone:['follow','subscription','raid']};
+ const platforms=['twitch','kick','vpzone','nekolive'];
+ const allowed={twitch:['follow','subscription','subscription_gift','cheer','raid'],kick:['follow','subscription','subscription_gift','kicks'],vpzone:['follow','subscription','raid'],nekolive:['follow','subscription','cheer','raid']};
  const senders=new Map();
  let activityListener=null;
  const setOnEvent=fn=>{activityListener=typeof fn==='function'?fn:null};

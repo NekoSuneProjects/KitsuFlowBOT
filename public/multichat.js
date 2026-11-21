@@ -20,8 +20,8 @@ async function playQueue(){
 const empty=document.createElement('div');empty.className='placeholder';empty.textContent='Waiting for messages from connected channels…';feed.append(empty);
 function status(data){
  statusEl.replaceChildren();
- const names={twitch:'Twitch',kick:'Kick',vpzone:'VPZone',tiktok:'TikTok'};
- for(const platform of ['twitch','kick','vpzone','tiktok']){
+ const names={twitch:'Twitch',kick:'Kick',vpzone:'VPZone',nekolive:'NekoLive',tiktok:'TikTok'};
+ for(const platform of ['twitch','kick','vpzone','nekolive','tiktok']){
   const raw=data?.[platform]?.status||'pending';
   const value=['connected','pending','failed'].includes(raw)?raw:'pending';
   const item=document.createElement('div');
@@ -29,7 +29,7 @@ function status(data){
   item.setAttribute('role','status');
   item.setAttribute('aria-label',names[platform]+': '+value);
   item.title=names[platform]+' — '+value+' — '+String(data?.[platform]?.detail||'Awaiting connection');
-  const badge=document.createElement('span');badge.className='connection-brand';badge.textContent=platform==='twitch'?'T':platform==='kick'?'K':platform==='tiktok'?'♪':'V';
+  const badge=document.createElement('span');badge.className='connection-brand';badge.textContent=platform==='twitch'?'T':platform==='kick'?'K':platform==='tiktok'?'♪':platform==='nekolive'?'N':'V';
   const name=document.createElement('span');name.className='connection-name';name.textContent=names[platform];
   const mark=document.createElement('span');mark.className='connection-mark';
   mark.textContent=value==='connected'?'✓':value==='failed'?'!':'';

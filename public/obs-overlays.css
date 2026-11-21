@@ -16,3 +16,6 @@
 @keyframes kf-connecting{to{transform:rotate(360deg)}}
 @media(max-width:560px){.connection-name{display:none}#connection-status .connection{padding:6px 8px}}
 @media(prefers-reduced-motion:reduce){.connection.pending .connection-mark{animation:none;border-top-color:#e7aa3b;opacity:.7}}
+
+/* NekoLive */
+.platform-nekolive{border-left-color:#f27ab8}.platform.nekolive{background:#8a2f62}#feed .message:has(.platform.nekolive){border-left-color:#f27ab8}.platform-nekolive .connection-brand{background:#b0407d}

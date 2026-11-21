@@ -50,8 +50,8 @@ async function activity(){
  if(access.role!=='owner')return c;
  const config=await api('/api/stream-announcements');
  const settings=card('Platform-local event announcements','Each toggle controls only its own platform. Announcements are disabled by default; customise the message and save each event.');
- const names={follow:'New follower',subscription:'New subscription',subscription_gift:'Gifted subscriptions',cheer:'Twitch Bits',kicks:'Kick Kicks',raid:'Raid'};
- for(const platform of ['twitch','kick','vpzone']){
+ const names={follow:'New follower',subscription:'New subscription',subscription_gift:'Gifted subscriptions',cheer:'Bits / NyaTreats',kicks:'Kick Kicks',raid:'Raid'};
+ for(const platform of ['twitch','kick','vpzone','nekolive']){
   const group=h('section','kf-settings-section',e('h3',platform.toUpperCase()));
   for(const entry of config.settings.filter(x=>x.platform===platform)){
    const toggle=input('Post '+(names[entry.event_type]||entry.event_type)+' to '+platform+' chat',entry.enabled,'checkbox');
@@ -293,7 +293,7 @@ async function subathon(){
  root.append(ov);
  const rewards=card('Automatic time rewards','All rewards are OFF by default. Seconds per unit means Bits, Kicks or gifted-sub count where reported by the platform; other events count once.');
  const rules=new Map(d.rules.map(x=>[x.platform+':'+x.event_type,x]));
- const names={subscription:'Subscription',subscription_renewal:'Resub / renewal',subscription_gift:'Gifted subscriptions',cheer:'Twitch Bits',kicks:'Kick Kicks',follow:'Follow',raid:'Raid',donation:'Donation'};
+ const names={subscription:'Subscription',subscription_renewal:'Resub / renewal',subscription_gift:'Gifted subscriptions',cheer:'Bits / NyaTreats',kicks:'Kick Kicks',follow:'Follow',raid:'Raid',donation:'Donation'};
  for(const [platform,events] of Object.entries(d.capabilities)){
   const sect=card(platform.toUpperCase());
   for(const event_type of events){
@@ -445,6 +445,16 @@ async function connections(){
    }else row.append(e('span','Not configured','pill'));
    providerCard.append(row);
  }
+ const neko=await api('/api/nekolive').catch(()=>null);
+ if(neko){
+  const status=neko.linked?'Linked: '+neko.linked.display_name+' · Chat '+(neko.chat?.status==='connected'?'connected':neko.chat?.detail||'disconnected')+' · '+(neko.bot?'Bot @'+neko.bot.display_name:'Bot token not configured by admin'):neko.configured.oauth?'Ready for OAuth connection':'Set NEKOLIVE_BASE_URL, NEKOLIVE_CLIENT_ID and NEKOLIVE_CLIENT_SECRET on the server';
+  const row=h('div','list-row',h('div','',e('strong','NekoLive'),e('div',status,'tiny')));
+  if(neko.linked){
+   row.append(actions(btn('Send test message',async()=>{await api('/api/nekolive/chat','POST',{});notify('NekoLive bot message sent')}),btn('Disconnect',async()=>{if(!confirm('Disconnect NekoLive?'))return;await api('/api/nekolive/disconnect','POST');await reloadView()},'danger')));
+  }else if(neko.configured.oauth)row.append(link('Connect NekoLive','/auth/nekolive','primary'));
+  else row.append(e('span','Not configured','pill'));
+  providerCard.append(row);
+ }
  const tiktokConfig=await api('/api/tiktok-inbound').catch(()=>({username:'',enabled:false,status:{status:'unavailable'}}));
  const tiktokCard=card('TikTok LIVE incoming chat (receive only)','Reads public TikTok LIVE comments using an unofficial connector. No TikTok login, app permission, or outbound posting is required. For relay, enable TikTok as a source and choose Twitch/Kick/VPZone destinations below.');
  const tikUser=input('TikTok LIVE username',tiktokConfig.username||'');
@@ -554,7 +564,7 @@ async function multichat(){
  const ttsMax=input('Maximum TTS message characters (20 - 500)',multi.tts_max_length??300,'number');
  const ttsCooldown=input('Per-viewer TTS cooldown in seconds',multi.tts_cooldown??15,'number');
  const ttsTemplate=input('Spoken message template ({username}, {message}, {platform})',multi.tts_template||'{username} says {message}');
- const ttsPlatforms={};for(const p of ['twitch','kick','vpzone'])ttsPlatforms[p]=input('Read '+p.toUpperCase()+' chat',multi.tts_platforms?.includes(p)??true,'checkbox');
+ const ttsPlatforms={};for(const p of ['twitch','kick','vpzone','nekolive'])ttsPlatforms[p]=input('Read '+p.toUpperCase()+' chat',multi.tts_platforms?.includes(p)??true,'checkbox');
  const voicesHelp=e('p','Voices are listed based on the selected engine. Browser voices depend on those installed in this browser/OBS; Kokoro voices require KOKORO_TTS_URL. SleepyChat proprietary voice names are not guaranteed equivalents.','description');
  const sourceOut=e('div',multi.configured?'Source configured. Regenerate to get a replacement URL.':'No browser source URL generated yet.','description');
  multiCard.append(grid('cols2',speech.node,ttsProvider.node,ttsRate.node,ttsVolume.node,ttsVoice.node,ttsLang.node,ttsPitch.node,ttsMax.node,ttsCooldown.node,ttsTemplate.node,...Object.values(ttsPlatforms).map(x=>x.node)),voicesHelp,actions(ttsPreview,btn('Save TTS option',async()=>{await api('/api/multichat/settings','POST',{tts_enabled:speech.value(),tts_provider:ttsProvider.value(),tts_rate:ttsRate.value(),tts_volume:ttsVolume.value(),tts_voice:ttsVoice.value(),tts_lang:ttsLang.value(),tts_pitch:Number(ttsPitch.value()),tts_max_length:Number(ttsMax.value()),tts_cooldown:Number(ttsCooldown.value()),tts_template:ttsTemplate.value(),tts_platforms:Object.keys(ttsPlatforms).filter(p=>ttsPlatforms[p].value())});notify('Multi-chat TTS saved')},'primary'),btn('Generate / rotate OBS URL',async()=>{
@@ -599,7 +609,7 @@ async function relay(){
 
  const active=new Set((relayData.routes||[]).filter(r=>r.enabled).flatMap(r=>[r.source,r.target]));
  const selected={};
- for(const platform of ['twitch','kick','vpzone','tiktok'])selected[platform]=input('Include '+platform.toUpperCase()+(platform==='tiktok'?' (receive only)':''),active.has(platform),'checkbox');
+ for(const platform of ['twitch','kick','vpzone','nekolive','tiktok'])selected[platform]=input('Include '+platform.toUpperCase()+(platform==='tiktok'?' (receive only)':''),active.has(platform),'checkbox');
  relayCard.append(relayEnabled.node,h('div','kf-platforms',...Object.values(selected).map(x=>x.node)),actions(btn('Save relay settings',async()=>{
   const platforms=Object.entries(selected).filter(([,control])=>control.value()).map(([name])=>name);
   await api('/api/relay/group','POST',{enabled:relayEnabled.value(),platforms});
@@ -645,6 +655,11 @@ c.append(device);
   const bot=pb.bots.find(b=>b.platform===platform),config=pb.configured.find(b=>b.platform===platform);
   platformBots.append(h('div','list-row',h('div','',e('strong',platform.toUpperCase()),e('div',bot?'Shared bot @'+bot.display_name:config?.ready?'Not connected':'Configure OAuth client credentials first','tiny')),actions(config?.ready?link(bot?'Reauthorise':'Connect bot','/auth/platform-bot/'+platform,'primary'):e('span','Not configured','tiny'),bot?btn('Disconnect',async()=>{if(!confirm('Disconnect '+platform+' shared bot?'))return;await api('/api/admin/platform-bots/'+platform+'/disconnect','POST');await reloadView()},'danger'):null)));
  }
+ const nb=await api('/api/admin/nekolive/bot').catch(()=>({base:null,bot:null}));
+ const nekoToken=input(nb.bot?'Replace NekoLive bot token':'NekoLive bot token','','password'),nekoName=input('Bot account name (as shown on NekoLive)',nb.bot?.display_name||'');
+ platformBots.append(h('div','kf-result',e('strong','NEKOLIVE'),e('div',!nb.base?'Set NEKOLIVE_BASE_URL first':nb.bot?'Shared bot @'+nb.bot.display_name:'Paste a bot token created in NekoLive Admin → Partnership. Each channel also needs an active NekoLive bot permission.','tiny'),grid('cols2',nekoToken.node,nekoName.node),
+  actions(btn('Save NekoLive bot',async()=>{await api('/api/admin/nekolive/bot','POST',{token:nekoToken.value(),name:nekoName.value()});notify('NekoLive bot saved');await reloadView()},'primary'),
+   nb.bot?btn('Disconnect',async()=>{if(!confirm('Remove the NekoLive bot token?'))return;await api('/api/admin/nekolive/bot/disconnect','POST');await reloadView()},'danger'):null)));
  c.append(platformBots);
 c.append(actions(btn('Reconnect bot EventSub',async()=>{await api('/api/admin/bot/reconnect','POST');notify('Reconnection requested');await show('admin')})),e('h3','Connected channels'),table(['Channel','Twitch ID','Enabled'],x.channels.map(v=>['@'+v.login,v.id,v.enabled?'Yes':'No'])));if(x.bot?.login===state.channel.login)c.append(e('div','Warning: The bot and broadcaster are the same Twitch account. For a public multi-channel bot, authorise a dedicated bot Twitch account instead.','empty'));const logs=await adminLogs();const diagnostics=card('Bot & platform logs','Operational diagnostics, integration errors, chat command logs and connection history.');diagnostics.append(table(['Time','Channel','Type','Detail'],logs.map(v=>[v.created,v.login||v.channel,v.event,v.detail])));return h('div','stack',c,diagnostics)}
 async function adminLogs(){return await api('/api/admin/logs').catch(()=>[])}
