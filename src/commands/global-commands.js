@@ -5,7 +5,10 @@ export const GLOBAL_COMMANDS = {
   commands: { level: 'everyone', description: "Show this channel's public commands page" },
   accountage: { level: 'everyone', description: 'Show Twitch account age' },
   followage: { level: 'everyone', description: 'Show how long a viewer has followed' },
-  watchtime: { level: 'everyone', description: 'Show estimated chat-based watch time' },
+  watchtime: {
+    level: 'everyone',
+    description: 'Show how long a viewer has watched live: !watchtime [@user]'
+  },
   so: { level: 'moderator', description: 'Shout out a Twitch streamer' },
   addpoints: {
     level: 'supermod',
@@ -140,12 +143,14 @@ CREATE TABLE IF NOT EXISTS channel_supermods(channel TEXT NOT NULL,user_id TEXT 
           .get(ch.id, viewer.id);
         await say(
           ch.id,
-          who +
-            ' has spent ' +
-            duration((points?.watch_minutes || 0) * 60000) +
-            ' watching ' +
-            ch.login +
-            ' (estimated from chat activity).'
+          points?.watch_minutes
+            ? who +
+                ' has watched ' +
+                ch.login +
+                ' for ' +
+                duration(points.watch_minutes * 60000) +
+                '.'
+            : who + " hasn't been seen watching " + ch.login + ' live yet.'
         );
         return;
       }

@@ -103,7 +103,7 @@ The dashboard now includes per-channel:
 - **Quotes** added through the dashboard or moderator-only `!addquote text`; `!quote` selects a random entry and `!quote number` chooses a specific one.
 - **Viewer points** configurable with a points amount and reward interval; `!points` and `!top` display balances.
 
-**Loyalty accuracy:** Twitch EventSub chat events do not provide an exhaustive list of viewers. This implementation awards points only to recently active chat participants after checking the channel is live. It does not and cannot correctly award points to every passive viewer/lurker without another consented presence mechanism. Watch minutes are an *estimate of active chat participation*, not actual video watch time. Points do not grant cash-equivalent rewards.
+**Loyalty accuracy:** Loyalty *points* go only to recently active chatters while the channel is live. *Watch time* (`!watchtime`, `!topwatch`, `!points`) is tracked separately: each minute the channel is live, every viewer present in chat earns one minute. Presence comes from Twitch's Get Chatters API, which includes logged-in lurkers and needs the broadcaster's `moderator:read:chatters` scope. If that scope is missing, only recent chatters are counted and the bot log asks the streamer to reconnect Twitch. Logged-out viewers can't be counted. Points do not grant cash-equivalent rewards.
 
 The engagement engine uses an in-process interval loop. For larger production deployments, move this into a durable, distributed queue with idempotency and per-channel rate limiting. The feature has been committed but not validated against Twitch live traffic or fully regression-tested.
 

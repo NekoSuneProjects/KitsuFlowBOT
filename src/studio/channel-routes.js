@@ -10,7 +10,12 @@ export function registerChannelRoutes(
   const { getAccount, botId, say, clip, lookup, moderate } = twitch;
   const { connectChat, chatHealth } = eventsub;
   app.get('/api/twitch/engagement-scopes', withUser, access.channelOnly('owner'), (req, res) => {
-    const needed = ['bits:read', 'channel:read:subscriptions', 'moderator:read:followers'];
+    const needed = [
+      'bits:read',
+      'channel:read:subscriptions',
+      'moderator:read:followers',
+      'moderator:read:chatters'
+    ];
     let granted = [];
     try {
       granted = JSON.parse(getAccount(req.channelId)?.scopes || '[]');

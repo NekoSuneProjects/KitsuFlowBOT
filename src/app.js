@@ -11,6 +11,7 @@ import { registerTwitchAuthRoutes } from './twitch/auth-routes.js';
 import { registerTwitchAdminRoutes } from './twitch/admin-routes.js';
 import { createGlobalCommands } from './commands/global-commands.js';
 import { createAskGpt } from './commands/askgpt.js';
+import { installWatchTime } from './features/watch-time.js';
 import { createOmniClient } from './features/ai/omni.js';
 import { registerChannelScope } from './studio/channel-scope.js';
 import { registerChannelRoutes } from './studio/channel-routes.js';
@@ -160,6 +161,7 @@ export function startServer() {
     log,
     api
   });
+  installWatchTime({ db, twitch, log, recentChatters: globalCommands.recentChatters });
   features.creator = installCreator({ app, db, withUser, csrf, safe, log, say, access });
   installVoice({ app, db, withUser, csrf, access, api, clip, log, say });
   installVoiceCompanion({ app, db, withUser, csrf, access, api, clip, log, say });

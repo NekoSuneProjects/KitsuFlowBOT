@@ -182,7 +182,7 @@ export function installEngagement({ app, db, withUser, csrf, safe, say, moderate
           (x?.points || 0) +
           ' points, ' +
           (x?.watch_minutes || 0) +
-          ' estimated active minutes'
+          ' minutes watched'
       );
       return true;
     }
@@ -278,7 +278,8 @@ export function installEngagement({ app, db, withUser, csrf, safe, say, moderate
             seen.set(key, now);
             db.prepare(
               'INSERT INTO loyalty(channel,user_id,username,points,watch_minutes) VALUES(?,?,?,?,?) ON CONFLICT(channel,user_id) DO UPDATE SET username=excluded.username,points=points+excluded.points,watch_minutes=watch_minutes+excluded.watch_minutes'
-            ).run(ch.id, uid, m.username, cfg.points_per_interval, cfg.interval_minutes);
+              // Watch time is tracked separately (features/watch-time.js); loyalty only pays points.
+            ).run(ch.id, uid, m.username, cfg.points_per_interval, 0);
           }
         }
       } catch (err) {
