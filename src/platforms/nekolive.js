@@ -1,15 +1,17 @@
-// NekoLive integration: broadcaster OAuth link, shared bot token for chat output,
-// and NekoLive's public chat WebSocket for incoming chat and alerts.
+// NekoLive integration: broadcaster OAuth link, chat output through the KitsuFlowBOT app's
+// chatbot, and NekoLive's public chat WebSocket for incoming chat and alerts.
 //
 // NekoLive specifics (verified against the WEBLIVE source):
-// - OAuth2 server at /oauth2/authorize + /oauth2/token (node-oauth2-server). No PKCE and
-//   no /me endpoint; the token response itself carries user {id, username}.
-// - Chat output: POST /api/chatbot {channel, message} with "Authorization: Bearer <bot token>".
-//   Bot tokens are issued in NekoLive's Admin → Partnership page, and NekoLive only accepts
-//   the post when a BotPermission row (botId, channelId=<channel name>) is active.
+// - OAuth2 at /oauth2/authorize + /oauth2/token (authorization_code + rotating refresh tokens,
+//   1 h access tokens). The token response is standard; identity comes from GET /api/oauth/me.
+// - Chat output (preferred): POST /api/oauth/chat with the broadcaster's token and the bot:send
+//   scope posts as the chatbot linked to the KitsuFlowBOT app in NekoLive /developers.
+//   Approving bot:send grants that bot permission in the broadcaster's channel.
+// - Chat output (fallback): POST /api/chatbot with a static bot token set in Admin Panel.
 // - Chat input: wss://<host>/chat/channel/<name>. Reading needs no login. Messages arrive as
-//   chat_message / chat_emotes; alerts as follow, subscribe, resubscribe, nyatreats,
-//   donations and raid_trigger. Bot posts are rebroadcast under the "nekoai" identity.
+//   chat_message / chat_emotes with HTML-escaped text; alerts as follow, subscribe,
+//   resubscribe, nyatreats, donations and raid_trigger. Bots post under their own name with
+//   roles.bot = true.
 import crypto from 'node:crypto';
 import { WebSocket } from 'ws';
 
@@ -22,12 +24,26 @@ const clean = (value, max = 250) =>
     .slice(0, max);
 // chat_emotes payloads mix raw viewer text with <img alt="code"> markup. Never forward
 // markup: keep each emote as :code: text and drop every other tag.
+// NekoLive HTML-escapes chat text on the server; undo it so relays show the real characters.
+const decodeEntities = value =>
+  String(value || '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&');
 const plain = html =>
-  String(html || '')
-    .replace(/<img\b[^>]*\balt\s*=\s*"([^"]*)"[^>]*>/gi, (_, code) => ' :' + code + ': ')
-    .replace(/<[^>]*>/g, '')
+  decodeEntities(
+    String(html || '')
+      .replace(/<img\b[^>]*\balt\s*=\s*"([^"]*)"[^>]*>/gi, (_, code) => ' :' + code + ': ')
+      .replace(/<[^>]*>/g, '')
+  )
     .replace(/\s+/g, ' ')
     .trim();
+const hasScope = (row, scope) =>
+  String(row?.scopes || '')
+    .split(/[\s,]+/)
+    .includes(scope);
 // NekoLive alert type -> KitsuFlowBOT activity type (stream-activity accepts these as-is).
 const ALERTS = {
   follow: 'follow',
@@ -52,7 +68,7 @@ function config() {
     base,
     clientId: String(process.env.NEKOLIVE_CLIENT_ID || '').trim(),
     clientSecret: String(process.env.NEKOLIVE_CLIENT_SECRET || '').trim(),
-    scope: String(process.env.NEKOLIVE_AUTH_SCOPES || 'channel:read').trim()
+    scope: String(process.env.NEKOLIVE_AUTH_SCOPES || 'user:read channel:read bot:send').trim()
   };
 }
 
@@ -70,7 +86,7 @@ export function installNekoLive({
   relay,
   streamActivity
 }) {
-  // platform_oauth and platform_bot_accounts are created by platform-integrations.js.
+  // platform_oauth and platform_bot_accounts are created by platforms/index.js.
   const linkedRow = channel =>
     db
       .prepare(
@@ -92,24 +108,138 @@ export function installNekoLive({
     isOperator(req.session.uid) ? next() : res.status(403).json({ error: 'Admin access required' });
   const redirectUri = () => base + '/auth/nekolive/callback';
 
-  // ---- chat output through the shared NekoLive bot ----
+  // ---- OAuth tokens ----
+  async function tokenRequest(params) {
+    const cfg = config();
+    const response = await fetch(cfg.base + '/oauth2/token', {
+      method: 'POST',
+      redirect: 'error',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+      body: new URLSearchParams({
+        ...params,
+        client_id: cfg.clientId,
+        client_secret: cfg.clientSecret
+      }),
+      signal: AbortSignal.timeout(12000)
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok)
+      throw Error(
+        'NekoLive token endpoint returned ' +
+          response.status +
+          (body.error ? ' (' + clean(body.error_description || body.error, 160) + ')' : '')
+      );
+    if (!body.access_token) throw Error('NekoLive did not return an access token');
+    return body;
+  }
+  const expiry = token => Date.now() + Math.max(60, Number(token.expires_in) || 3600) * 1000;
+
+  // Refresh tokens rotate, so parallel refreshes for one channel share a single request.
+  const refreshing = new Map();
+  async function accessToken(channel, force = false) {
+    const row = db
+      .prepare(
+        "SELECT access_token,refresh_token,expires_at FROM platform_oauth WHERE channel=? AND platform='nekolive'"
+      )
+      .get(channel);
+    if (!row) throw Error('Link your NekoLive channel first');
+    if (!force && row.expires_at > Date.now() + 120000) return dec(row.access_token);
+    if (refreshing.has(channel)) return refreshing.get(channel);
+    const job = (async () => {
+      const refreshToken = dec(row.refresh_token);
+      if (!refreshToken) throw Error('NekoLive grant expired. Reconnect NekoLive in Connections.');
+      let token;
+      try {
+        token = await tokenRequest({ grant_type: 'refresh_token', refresh_token: refreshToken });
+      } catch (err) {
+        throw Error(err.message + '. Reconnect NekoLive in Connections.');
+      }
+      db.prepare(
+        "UPDATE platform_oauth SET access_token=?,refresh_token=?,expires_at=?,scopes=COALESCE(?,scopes) WHERE channel=? AND platform='nekolive'"
+      ).run(
+        enc(token.access_token),
+        enc(String(token.refresh_token || refreshToken)),
+        expiry(token),
+        token.scope ? String(token.scope) : null,
+        channel
+      );
+      return token.access_token;
+    })().finally(() => refreshing.delete(channel));
+    refreshing.set(channel, job);
+    return job;
+  }
+
+  // Calls /api/oauth/* as the linked broadcaster, refreshing once on 401.
+  async function oauthApi(channel, path, { method = 'GET', body } = {}) {
+    const cfg = config();
+    const send = token =>
+      fetch(cfg.base + path, {
+        method,
+        redirect: 'error',
+        headers: {
+          Authorization: 'Bearer ' + token,
+          Accept: 'application/json',
+          ...(body ? { 'Content-Type': 'application/json' } : {})
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(12000)
+      });
+    let response = await send(await accessToken(channel));
+    if (response.status === 401) response = await send(await accessToken(channel, true));
+    const data = await response.json().catch(() => ({}));
+    return { status: response.status, ok: response.ok, data };
+  }
+
+  // ---- chat output ----
+  const canSend = channel => hasScope(linkedRow(channel), 'bot:send') || Boolean(botRow());
+
   async function say(channel, text) {
     const cfg = config();
     if (!cfg.base) throw Error('NEKOLIVE_BASE_URL is not configured');
     const linked = linkedRow(channel);
     if (!linked || !SLUG.test(linked.display_name)) throw Error('Link your NekoLive channel first');
-    const bot = botRow();
-    if (!bot) throw Error('NekoLive bot token is not configured. Add it in Admin Panel.');
     const message = String(text || '')
       .trim()
       .slice(0, 400);
     if (!message) throw Error('Message is empty');
+    if (hasScope(linked, 'bot:send')) return sayAsApp(channel, linked, message);
+    if (botRow()) return sayWithBotToken(channel, linked, message);
+    throw Error(
+      'NekoLive chat is not enabled for this channel. Reconnect NekoLive in Connections and approve "Add this app\'s chatbot to your channel".'
+    );
+  }
+
+  // Posts as the chatbot linked to the KitsuFlowBOT app; NekoLive targets the broadcaster's channel.
+  async function sayAsApp(channel, linked, message) {
+    const { status, ok, data } = await oauthApi(channel, '/api/oauth/chat', {
+      method: 'POST',
+      body: { message }
+    });
+    if (ok && data.ok) {
+      log(channel, 'nekolive-bot-message', data.channel || linked.display_name);
+      return { ok: true, mode: 'app' };
+    }
+    const reason = clean(data.error_description || data.error || 'unknown error', 200);
+    if (status === 400 && /chatbot/i.test(reason))
+      throw Error(
+        'The KitsuFlowBOT app on NekoLive has no chatbot linked. Link one to the app in NekoLive /developers. (' +
+          reason +
+          ')'
+      );
+    if (status === 403 && data.error === 'insufficient_scope')
+      throw Error('NekoLive grant lacks bot:send. Reconnect NekoLive in Connections.');
+    throw Error('NekoLive chat failed (' + status + '): ' + reason);
+  }
+
+  // Legacy path: static bot token from Admin Panel; the bot needs permission in the channel.
+  async function sayWithBotToken(channel, linked, message) {
+    const cfg = config();
     const target = linked.display_name.toLowerCase();
     const response = await fetch(cfg.base + '/api/chatbot', {
       method: 'POST',
       redirect: 'error',
       headers: {
-        Authorization: 'Bearer ' + dec(bot.access_token),
+        Authorization: 'Bearer ' + dec(botRow().access_token),
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ channel: target, message }),
@@ -120,9 +250,9 @@ export function installNekoLive({
       throw Error('NekoLive rejected the bot token. Replace it in Admin Panel.');
     if (response.status === 403)
       throw Error(
-        'NekoLive has no active bot permission for channel "' +
+        'The NekoLive bot is not allowed in channel "' +
           target +
-          '". A NekoLive admin must grant the bot access to this channel.'
+          '". Reconnect NekoLive in Connections to grant the app chatbot, or add the bot to the channel in NekoLive /developers.'
       );
     if (!response.ok || body.success !== 1)
       throw Error(
@@ -132,12 +262,12 @@ export function installNekoLive({
           clean(body.error || 'unknown error', 200)
       );
     log(channel, 'nekolive-bot-message', target);
-    return { ok: true };
+    return { ok: true, mode: 'token' };
   }
 
   // ---- custom commands from NekoLive chat ----
-  // NekoLive's chat roles are derived from a client-supplied user ID, so they are not
-  // trustworthy for permission checks. Only 'everyone' commands run, as for VPZone/Kick.
+  // Only 'everyone' commands run, as for VPZone/Kick: KitsuFlowBOT has no verified mapping
+  // from NekoLive chat roles to its moderator/subscriber levels yet.
   const cooldowns = new Map();
   async function command(channel, username, body) {
     const parts = body.split(/\s+/),
@@ -148,7 +278,7 @@ export function installNekoLive({
     const cmd = db
       .prepare('SELECT response,cooldown,level FROM commands WHERE channel=? AND name=?')
       .get(channel, key);
-    if (!cmd || cmd.level !== 'everyone' || !botRow()) return;
+    if (!cmd || cmd.level !== 'everyone' || !canSend(channel)) return;
     const throttle = channel + ':nekolive:' + key,
       now = Date.now();
     if ((cooldowns.get(throttle) || 0) > now) return;
@@ -193,10 +323,10 @@ export function installNekoLive({
     if (type !== 'chat_message' && type !== 'chat_emotes') return;
     const username = clean(msg.username, 40);
     const body = (
-      type === 'chat_emotes' ? plain(msg.message) : String(msg.message || '').trim()
+      type === 'chat_emotes' ? plain(msg.message) : decodeEntities(msg.message).trim()
     ).slice(0, 350);
     if (!username || !body) return;
-    // Every bot post (including ours) is rebroadcast by NekoLive as "nekoai".
+    // Skip bot posts (including ours) and NekoAI system messages so relays can't loop.
     const roles = msg.roles || {};
     if (username.toLowerCase() === 'nekoai' || roles.bot === true || roles.verifiedBot === true)
       return;
@@ -370,31 +500,37 @@ export function installNekoLive({
       if (req.query.error) return res.redirect('/dashboard?nekolive=denied');
       if (!req.query.code) throw Error('NekoLive did not return an authorisation code');
       const cfg = config();
-      const response = await fetch(cfg.base + '/oauth2/token', {
-        method: 'POST',
-        redirect: 'error',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          Accept: 'application/json'
-        },
-        body: new URLSearchParams({
-          grant_type: 'authorization_code',
-          code: String(req.query.code),
-          redirect_uri: redirectUri(),
-          client_id: cfg.clientId,
-          client_secret: cfg.clientSecret
-        }),
-        signal: AbortSignal.timeout(12000)
+      const token = await tokenRequest({
+        grant_type: 'authorization_code',
+        code: String(req.query.code),
+        redirect_uri: redirectUri()
       });
-      if (!response.ok) throw Error('NekoLive token exchange returned ' + response.status);
-      const token = await response.json();
-      const id = String(token.user?.id ?? ''),
-        name = String(token.user?.username || '');
-      if (!token.access_token || !id || !SLUG.test(name))
-        throw Error('NekoLive did not return a usable account identity');
-      const expires =
-        Date.parse(token.accessTokenExpiresAt || '') ||
-        Date.now() + Number(token.expires_in || 3600) * 1000;
+      // Older NekoLive builds put the user in the token response; current ones use /api/oauth/me.
+      let user = token.user;
+      if (!user?.id) {
+        const me = await fetch(cfg.base + '/api/oauth/me', {
+          redirect: 'error',
+          headers: { Authorization: 'Bearer ' + token.access_token, Accept: 'application/json' },
+          signal: AbortSignal.timeout(12000)
+        });
+        const body = await me.json().catch(() => ({}));
+        if (me.status === 403)
+          throw Error(
+            'NekoLive did not grant user:read. Enable the user:read scope on the KitsuFlowBOT app in NekoLive /developers, then reconnect.'
+          );
+        if (!me.ok)
+          throw Error(
+            'NekoLive profile lookup failed (' +
+              me.status +
+              '): ' +
+              clean(body.error_description || body.error, 160)
+          );
+        user = body;
+      }
+      const id = String(user?.id ?? ''),
+        name = String(user?.username || '');
+      if (!id || !SLUG.test(name)) throw Error('NekoLive did not return a usable account identity');
+      const expires = expiry(token);
       db.prepare(
         'INSERT INTO platform_oauth(channel,platform,external_id,display_name,access_token,refresh_token,expires_at,scopes) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(channel,platform) DO UPDATE SET external_id=excluded.external_id,display_name=excluded.display_name,access_token=excluded.access_token,refresh_token=excluded.refresh_token,expires_at=excluded.expires_at,scopes=excluded.scopes'
       ).run(
@@ -425,6 +561,8 @@ export function installNekoLive({
         oauth: Boolean(cfg.base && cfg.clientId && cfg.clientSecret),
         bot: Boolean(bot)
       },
+      // 'app' = chatbot linked to the KitsuFlowBOT app (bot:send), 'token' = admin bot token.
+      send_mode: hasScope(linked, 'bot:send') ? 'app' : bot ? 'token' : 'none',
       base: cfg.base,
       linked: linked
         ? { display_name: linked.display_name, external_id: linked.external_id }

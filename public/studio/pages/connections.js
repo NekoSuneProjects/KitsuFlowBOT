@@ -146,7 +146,11 @@ export async function connections() {
         ' · Chat ' +
         (neko.chat?.status === 'connected' ? 'connected' : neko.chat?.detail || 'disconnected') +
         ' · ' +
-        (neko.bot ? 'Bot @' + neko.bot.display_name : 'Bot token not configured by admin')
+        (neko.send_mode === 'app'
+          ? 'Bot: KitsuFlowBOT app chatbot'
+          : neko.send_mode === 'token'
+            ? 'Bot @' + neko.bot.display_name + ' (admin token)'
+            : 'Bot not allowed yet: reconnect and approve the chatbot permission')
       : neko.configured.oauth
         ? 'Ready for OAuth connection'
         : 'Set NEKOLIVE_BASE_URL, NEKOLIVE_CLIENT_ID and NEKOLIVE_CLIENT_SECRET on the server';

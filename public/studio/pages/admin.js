@@ -125,8 +125,10 @@ export async function admin() {
         !nb.base
           ? 'Set NEKOLIVE_BASE_URL first'
           : nb.bot
-            ? 'Shared bot @' + nb.bot.display_name
-            : 'Paste a bot token created in NekoLive Admin → Partnership. Each channel also needs an active NekoLive bot permission.',
+            ? 'Fallback bot @' +
+              nb.bot.display_name +
+              ' (used only for channels that did not grant the app chatbot)'
+            : 'Optional. Channels normally post as the chatbot linked to the KitsuFlowBOT app in NekoLive /developers. A bot token here is only a fallback for channels that did not approve that permission.',
         'tiny'
       ),
       grid('cols2', nekoToken.node, nekoName.node),

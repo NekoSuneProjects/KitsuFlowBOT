@@ -341,22 +341,30 @@ This functionality is in PR #59 only. Do not merge until explicitly approved.
 
 ## NekoLive integration
 
-NekoLive works like the Kick and VPZone integrations: the broadcaster links their NekoLive channel to their Twitch-based creator profile, and one shared bot posts to chat. Code lives in `src/platforms/nekolive.js`.
+The broadcaster links their NekoLive channel to their Twitch-based creator profile, like Kick and VPZone. Messages are posted by the **chatbot linked to the KitsuFlowBOT app** on NekoLive, using the broadcaster's own OAuth grant. Code lives in `src/platforms/nekolive.js`.
 
 **What works**
-- **Incoming chat** is read from NekoLive's public chat WebSocket (`/chat/channel/<name>`). It needs no login and is restored after restarts. Emote markup is reduced to `:code:` text and never forwarded as HTML.
-- **Custom commands** with permission `everyone` run in NekoLive chat, with their normal cooldown. Moderator/subscriber commands are skipped on purpose: NekoLive's chat roles come from a client-supplied user ID, so they can't be trusted yet.
+- **Linking** uses NekoLive OAuth2 (`/oauth2/authorize`, `/oauth2/token`). The account comes from `GET /api/oauth/me`. Access tokens last 1 hour and refresh automatically; refresh tokens rotate.
+- **Bot messages** go through `POST /api/oauth/chat` (`bot:send` scope). When the streamer approves "Add this app's chatbot to your channel", NekoLive grants the app's bot permission in their channel automatically. A static bot token in Admin Panel is optional and only used for channels without that grant.
+- **Incoming chat** is read from NekoLive's public chat WebSocket (`/chat/channel/<name>`). It needs no login and is restored after restarts. NekoLive escapes chat text as HTML; KitsuFlowBOT decodes it and turns emote markup into `:code:` text, never forwarding HTML. Messages from bots (`roles.bot`) are ignored, so relays can't loop.
+- **Custom commands** with permission `everyone` run in NekoLive chat, with their normal cooldown. Moderator/subscriber commands are skipped: there's no verified mapping from NekoLive roles to KitsuFlowBOT levels yet.
 - **Chat relay, multi-chat and TTS** include NekoLive as a source and a target.
 - **Alerts** map into the activity feed: `follow` → follow, `subscribe` → subscription, `resubscribe` → resub, `nyatreats` → Bits-style cheer (with amount), `donations` → donation, `raid_trigger` → raid. They drive OBS alerts, the subathon, the Stream Boss, goals and chat announcements (all off by default).
 
 **Setup**
-1. On NekoLive, create an OAuth client row (`OAuthClients`). Set `redirect_uri` to exactly `BASE_URL/auth/nekolive/callback` and allow scope `channel:read`. The scope must also exist in `OAuthScopes` with `is_default=1`.
-2. Set `NEKOLIVE_BASE_URL`, `NEKOLIVE_CLIENT_ID`, `NEKOLIVE_CLIENT_SECRET` (and optionally `NEKOLIVE_AUTH_SCOPES`) in `.env`, then restart.
-3. In NekoLive **Admin → Partnership**, create a bot token. Paste it in KitsuFlowBOT **Admin Panel → Shared Kick / VPZone bot accounts → NEKOLIVE**.
-4. For each channel the bot should post in, NekoLive needs an active `BotPermissions` row with `botId=<bot id>` and `channelId=<lowercase channel name>`. NekoLive has no UI for this yet. Without it, sends fail with a clear "no active bot permission" error.
-5. The streamer opens **Connections → NekoLive → Connect NekoLive**. They must already be signed in to NekoLive in the same browser, because NekoLive's authorise page redirects to its login and drops the request otherwise.
+1. On NekoLive, open **/developers**. Create a chatbot (its name is what viewers see), then create an OAuth app:
+   - Redirect URL: exactly `BASE_URL/auth/nekolive/callback` (e.g. `https://kitsuflowbot.nekosunevr.co.uk/auth/nekolive/callback`).
+   - Scopes: `user:read`, `channel:read`, `bot:send`.
+   - Chatbot: the bot you just created.
+2. Put the app's client ID and secret in `.env` as `NEKOLIVE_CLIENT_ID` / `NEKOLIVE_CLIENT_SECRET`, set `NEKOLIVE_BASE_URL` to the NekoLive origin, and restart. `NEKOLIVE_AUTH_SCOPES` defaults to `user:read channel:read bot:send`; every scope listed must be enabled on the app.
+3. The streamer opens **Connections → NekoLive → Connect NekoLive**, signs in to NekoLive if asked, and approves. Then **Send test message**: it should appear in their NekoLive chat from the app's chatbot.
 
-**Known NekoLive-side limitations**
-- Bot posts appear as **NekoAI**, not the bot's own name, because NekoLive's `broadcastMessageStaffBOT` overwrites the sender. KitsuFlowBOT ignores `nekoai` messages, so relays can't loop.
+**Troubleshooting**
+- *"did not grant user:read"*: enable `user:read` on the NekoLive app, then reconnect.
+- *"no chatbot linked"*: link a chatbot to the app in NekoLive /developers.
+- *Invalid scopes page on NekoLive*: `NEKOLIVE_AUTH_SCOPES` asks for a scope the app doesn't have enabled.
+- Channels linked before this change have no `bot:send` grant. Reconnect them once.
+
+**Limitations**
 - NekoLive alerts carry no event ID, so they can't be deduplicated across reconnects.
-- Stream title/game sync and voice clips are Twitch/Kick/VPZone only for now. NekoLive has a clip API (`/api/clips`) that could be added next.
+- Stream title/game sync and voice clips are Twitch/Kick/VPZone only for now. NekoLive now offers `PATCH /api/oauth/channel` (`channel:edit`) and a clip API, which could be added next.
