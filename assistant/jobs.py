@@ -1,9 +1,11 @@
-"""Background worker: polls KitsuFlowBOT for Assistant jobs (Beat Saber, Minecraft) and reports results."""
+"""Background worker: polls KitsuFlowBOT for Assistant jobs (Beat Saber, game actions) and reports results."""
 import threading
 import time
 
 import beatsaber
+import keys
 import minecraft
+import rcon_games
 from api import ApiError
 from settings import truthy
 
@@ -20,6 +22,7 @@ class JobWorker(threading.Thread):
         self.get_settings = get_settings
         self.emit = emit
         self.stop_event = threading.Event()
+        self.key_sender = None  # tests inject a fake; None uses Windows SendInput
 
     def stop(self):
         self.stop_event.set()
@@ -70,6 +73,31 @@ class JobWorker(threading.Thread):
                 message = minecraft.run_action(
                     payload, settings.get("KITSUFLOW_MC_HOST", "127.0.0.1"), settings.get("KITSUFLOW_MC_PORT", "25575"),
                     settings.get("KITSUFLOW_MC_PASSWORD", ""), settings.get("KITSUFLOW_MC_PLAYER", ""))
+            elif kind == "ark":
+                if not truthy(settings.get("KITSUFLOW_ARK_ENABLED")):
+                    raise RuntimeError("ARK actions are turned off in the Assistant app")
+                self.emit("log", "ARK: " + str(payload.get("action", "action")))
+                message = rcon_games.run_action(
+                    "ark", payload, settings.get("KITSUFLOW_ARK_HOST", "127.0.0.1"),
+                    settings.get("KITSUFLOW_ARK_PORT", "27020"), settings.get("KITSUFLOW_ARK_PASSWORD", ""),
+                    settings.get("KITSUFLOW_ARK_PLAYER", ""))
+            elif kind == "rcon":
+                game, configured = str(payload.get("game", "rcon")), settings.get("KITSUFLOW_RCON_GAME", "rcon")
+                if not truthy(settings.get("KITSUFLOW_RCON_ENABLED")):
+                    raise RuntimeError("RCON game actions are turned off in the Assistant app")
+                if game != configured:
+                    raise RuntimeError(f"This action is for {rcon_games.LABELS.get(game, game)}, but the app is "
+                                       f"set up for {rcon_games.LABELS.get(configured, configured)}")
+                self.emit("log", rcon_games.LABELS.get(game, game) + ": " + str(payload.get("action", "action")))
+                message = rcon_games.run_action(
+                    game, payload, settings.get("KITSUFLOW_RCON_HOST", "127.0.0.1"),
+                    settings.get("KITSUFLOW_RCON_PORT", "25575"), settings.get("KITSUFLOW_RCON_PASSWORD", ""),
+                    settings.get("KITSUFLOW_RCON_PLAYER", ""))
+            elif kind == "keys":
+                if not truthy(settings.get("KITSUFLOW_KEYS_ENABLED")):
+                    raise RuntimeError("Key presses are turned off in the Assistant app")
+                self.emit("log", "Keys: " + str(payload.get("action", "action")))
+                message = keys.run_action(payload, settings.get("KITSUFLOW_KEYS_WINDOW", ""), sender=self.key_sender)
             else:
                 raise RuntimeError("This Assistant version does not support '" + str(kind) + "' jobs; please update")
             ok = True

@@ -33,10 +33,18 @@ Requests are refused while the app is offline, when the queue is full, or when t
    rcon.password=choose-a-long-password
    ```
    Then restart the server. Keep the RCON port closed to the internet unless the server is on another machine you control.
-2. In the app's **Minecraft** page, enter the host, port, password and your in-game name. Then click **Test RCON connection**.
-3. In Studio → **Assistant App**, add actions. An action can be a chat command (for example `!creeper`, with a points cost and cooldown) or a stream event (follow, sub, gift sub, cheer, Kick kicks, tip or raid, with an optional minimum amount). Each action runs one or more commands, such as `execute at {player} run summon creeper ~ ~ ~`. Use **Test** to try one.
+2. On the app's **Games** page (Minecraft section), enter the host, port, password and your in-game name. Then click **Test RCON connection**.
+3. In Studio → **Assistant App**, add actions (pick a game, then **Start from a preset**: creeper, zombie horde, anvil drop, smite, random TP and more). An action can be a chat command (for example `!creeper`, with a points cost and cooldown) or a stream event (follow, sub, gift sub, cheer, Kick kicks, tip or raid, with an optional minimum amount). Each action runs one or more commands, such as `execute at {player} run summon creeper ~ ~ ~`. Use **Test** to try one.
 
 `{player}` is your in-game name and `{user}` is the viewer's name. Server-admin commands such as `op`, `stop` or `ban` are always refused. If an action fails, the viewer's points are refunded.
+
+## 5. ARK, other RCON games and key presses
+
+All of these are on the app's **Games** page. Create the actions in Studio → **Assistant App**: pick the game, then **Start from a preset**.
+
+- **ARK:** start the server with `RCONEnabled=True`, an `RCONPort` (default 27020) and `ServerAdminPassword`. In the app, enter those, click **Test (ListPlayers)** and copy your player ID (the number after your name) into *Your ARK player ID*.
+- **Palworld / Factorio / Project Zomboid / other:** choose the game under *Other RCON game*, then enter its RCON port and password. Actions made in Studio for a different game are refused.
+- **Key presses (Windows):** tick *Allow key presses*, click **Use the window focused in 3 seconds** and click your game. Viewers' actions then press keys only while that window is focused.
 
 ## Settings file
 

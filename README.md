@@ -2,7 +2,7 @@
 
 This branch holds only the KitsuFlowBOT Assistant desktop app and its Windows x64 / Linux AMD64 packaging. The KitsuFlowBOT server and Studio stay on `main`.
 
-The Assistant is one app for the stream features that run on your PC: voice-triggered clips, Beat Saber song requests (`!bsr`) and Minecraft Interactive over RCON. It replaces the old single-purpose Voice Companion, and existing device keys keep working.
+The Assistant is one app for the stream features that run on your PC: voice-triggered clips, Beat Saber song requests (`!bsr`) and game actions (Minecraft, ARK, Palworld, Factorio, Project Zomboid and other RCON games, plus key presses in any Windows game). It replaces the old single-purpose Voice Companion, and existing device keys keep working.
 
 Download builds from [GitHub Releases](https://github.com/NekoSuneProjects/KitsuFlowBOT/releases) or [GitHub Actions](https://github.com/NekoSuneProjects/KitsuFlowBOT/actions/workflows/assistant-build.yml?query=branch%3Adesktopapp). Downloaded builds need no Python install.
 

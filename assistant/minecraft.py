@@ -14,7 +14,7 @@ PLAYER = re.compile(r"^[A-Za-z0-9_]{3,16}$")
 # Never run server-admin commands, even if a job contains them (the server blocks them too).
 BLOCKED = {"op", "deop", "stop", "ban", "ban-ip", "pardon", "pardon-ip", "whitelist", "kick",
            "save-off", "save-all", "reload", "restart", "debug", "perf", "jfr", "transfer"}
-LOGIN, COMMAND = 3, 2
+LOGIN, COMMAND, AUTH_RESPONSE = 3, 2, 2
 
 
 class RconError(Exception):
@@ -35,7 +35,14 @@ class Rcon:
         except OSError as exc:
             raise RconError(f"Cannot connect to RCON at {self.host}:{self.port} ({exc.strerror or exc})") from None
         request_id = self._send(LOGIN, self.password)
-        reply_id, _ = self._read()
+        # Source servers (ARK, Palworld…) send an empty RESPONSE_VALUE before the AUTH_RESPONSE;
+        # Minecraft sends only the AUTH_RESPONSE. Skip type-0 packets until the auth answer.
+        for _ in range(3):
+            reply_id, kind, _ = self._read_packet()
+            if kind == AUTH_RESPONSE:
+                break
+        else:
+            raise RconError("RCON server did not answer the login")
         if reply_id == -1 or reply_id != request_id:
             raise RconError("RCON password rejected")
         return self
@@ -60,13 +67,17 @@ class Rcon:
             out += chunk
         return out
 
-    def _read(self):
+    def _read_packet(self):
         (length,) = struct.unpack("<i", self._recv(4))
         if not 10 <= length <= 4106:
             raise RconError("Invalid RCON response")
         payload = self._recv(length)
-        request_id, _kind = struct.unpack("<ii", payload[:8])
-        return request_id, payload[8:-2].decode("utf-8", "replace")
+        request_id, kind = struct.unpack("<ii", payload[:8])
+        return request_id, kind, payload[8:-2].decode("utf-8", "replace")
+
+    def _read(self):
+        request_id, _kind, body = self._read_packet()
+        return request_id, body
 
     def command(self, text):
         request_id = self._send(COMMAND, text)

@@ -31,6 +31,22 @@ DEFAULTS = {
     "KITSUFLOW_MC_PORT": "25575",
     "KITSUFLOW_MC_PASSWORD": "",
     "KITSUFLOW_MC_PLAYER": "",
+    # ARK (RCON). {player} is the numeric in-game player ID.
+    "KITSUFLOW_ARK_ENABLED": "false",
+    "KITSUFLOW_ARK_HOST": "127.0.0.1",
+    "KITSUFLOW_ARK_PORT": "27020",
+    "KITSUFLOW_ARK_PASSWORD": "",
+    "KITSUFLOW_ARK_PLAYER": "",
+    # Other RCON game: palworld | factorio | zomboid | rcon
+    "KITSUFLOW_RCON_ENABLED": "false",
+    "KITSUFLOW_RCON_GAME": "palworld",
+    "KITSUFLOW_RCON_HOST": "127.0.0.1",
+    "KITSUFLOW_RCON_PORT": "25575",
+    "KITSUFLOW_RCON_PASSWORD": "",
+    "KITSUFLOW_RCON_PLAYER": "",
+    # PC key presses (Windows): only typed while this window title is focused
+    "KITSUFLOW_KEYS_ENABLED": "false",
+    "KITSUFLOW_KEYS_WINDOW": "",
 }
 
 

@@ -1,4 +1,4 @@
-"""KitsuFlowBOT Assistant window: Home, Voice Clips, Beat Saber, Minecraft and Settings pages."""
+"""KitsuFlowBOT Assistant window: Home, Voice Clips, Beat Saber, Games and Settings pages."""
 import os
 import queue
 import re
@@ -11,7 +11,9 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 import beatsaber
+import keys
 import minecraft
+import rcon_games
 from api import ApiError, KitsuFlowApi
 from jobs import JobWorker
 from model_downloader import install_model, valid_model
@@ -22,7 +24,8 @@ from whisper_models import MODELS, cache_dir, ensure_whisper_model, gpu_informat
 
 BG, PANEL, RAISED, BORDER = "#0b111b", "#151f2d", "#1c2b3c", "#304354"
 TEXT, MUTED, TEAL = "#f2f7fd", "#9eafc2", "#48e4c2"
-PAGES = ("Home", "Voice Clips", "Beat Saber", "Minecraft", "Settings")
+PAGES = ("Home", "Voice Clips", "Beat Saber", "Games", "Settings")
+GAME_NAMES = {"minecraft": "Minecraft", "keys": "Key presses", **rcon_games.LABELS}
 
 
 class AssistantApp:
@@ -52,6 +55,8 @@ class AssistantApp:
         self.voice_status = tk.StringVar(value="Voice clips stopped")
         self.voice_phrase = tk.StringVar(value="Trigger phrase: —")
         self.mc_status = tk.StringVar(value="")
+        self.game_status = {g: tk.StringVar(value="") for g in ("minecraft", "ark", "rcon", "keys")}
+        self.game_status["minecraft"] = self.mc_status
         self.snapshot = self.values()
         for var in list(self.vars.values()) + [self.mic_choice]:
             var.trace_add("write", lambda *_: self._refresh_snapshot())
@@ -145,7 +150,7 @@ class AssistantApp:
         self._home()
         self._voice_page()
         self._beatsaber_page()
-        self._minecraft_page()
+        self._games_page()
         self._settings_page()
         self.root.bind_all("<MouseWheel>", self._wheel, add="+")
         self.root.bind_all("<Button-4>", self._wheel, add="+")
@@ -212,7 +217,8 @@ class AssistantApp:
         page = ttk.Frame(self.body, style="App.TFrame")
         self.pages["Home"] = page
         top = self._card(page, "Connection", "The Assistant connects to your KitsuFlowBOT dashboard and runs voice clips, "
-                                             "Beat Saber song requests and Minecraft actions for your channel.")
+                                             "Beat Saber song requests and game actions (Minecraft, ARK, other "
+                                             "RCON games, key presses) for your channel.")
         ttk.Label(top, textvariable=self.status).pack(anchor="w")
         ttk.Label(top, textvariable=self.channel, style="Muted.TLabel").pack(anchor="w", pady=(2, 10))
         row = ttk.Frame(top, style="Card.TFrame")
@@ -287,23 +293,66 @@ class AssistantApp:
         self.bsr_list.pack(fill="x")
         self._save_row(page)
 
-    def _minecraft_page(self):
-        page = self._scroll_page("Minecraft")
-        card = self._card(page, "Minecraft Interactive (RCON)",
-                          "Chat commands, stream events and Studio tests run Minecraft commands on your server. In "
-                          "server.properties set enable-rcon=true, rcon.port and a long rcon.password, and keep that port "
-                          "closed to the internet. Create actions in Studio → Assistant App.")
-        self._check(card, "Run Minecraft actions on this PC", "KITSUFLOW_MC_ENABLED")
-        self._entry(card, "RCON host", "KITSUFLOW_MC_HOST")
-        self._entry(card, "RCON port", "KITSUFLOW_MC_PORT")
-        self._entry(card, "RCON password", "KITSUFLOW_MC_PASSWORD", secret=True)
-        self._entry(card, "Your Minecraft player name (used for {player})", "KITSUFLOW_MC_PLAYER")
-        row = ttk.Frame(card, style="Card.TFrame")
+    def _status_row(self, parent, label, command, game):
+        row = ttk.Frame(parent, style="Card.TFrame")
         row.pack(fill="x", pady=(10, 0))
-        ttk.Button(row, text="Test RCON connection", command=self.test_rcon).pack(side="left")
-        ttk.Label(row, textvariable=self.mc_status, style="Muted.TLabel").pack(side="left", padx=10)
+        ttk.Button(row, text=label, command=command).pack(side="left")
+        ttk.Label(row, textvariable=self.game_status[game], style="Muted.TLabel").pack(side="left", padx=10)
+
+    def _games_page(self):
+        page = self._scroll_page("Games")
+        intro = self._card(page, "Game Interactive",
+                           "Viewers use chat commands (paid with channel points), stream events and your Studio tests "
+                           "to run actions in your game. Create actions in Studio → Assistant App, then set up the "
+                           "matching game below. Server-admin commands are always refused.")
+        ttk.Label(intro, text="Keep RCON ports closed to the internet; the Assistant normally talks to 127.0.0.1.",
+                  style="Muted.TLabel").pack(anchor="w")
+
+        mc = self._card(page, "Minecraft (Java, RCON)",
+                        "In server.properties set enable-rcon=true, rcon.port and a long rcon.password.")
+        self._check(mc, "Run Minecraft actions on this PC", "KITSUFLOW_MC_ENABLED")
+        self._entry(mc, "RCON host", "KITSUFLOW_MC_HOST")
+        self._entry(mc, "RCON port", "KITSUFLOW_MC_PORT")
+        self._entry(mc, "RCON password", "KITSUFLOW_MC_PASSWORD", secret=True)
+        self._entry(mc, "Your Minecraft player name (used for {player})", "KITSUFLOW_MC_PLAYER")
+        self._status_row(mc, "Test RCON connection", self.test_rcon, "minecraft")
+
+        ark = self._card(page, "ARK: Survival Evolved / Ascended (RCON)",
+                         "Start the server with RCONEnabled=True, RCONPort (default 27020) and ServerAdminPassword. "
+                         "{player} is your numeric in-game player ID: run ListPlayers over RCON (use Test) to find it.")
+        self._check(ark, "Run ARK actions on this PC", "KITSUFLOW_ARK_ENABLED")
+        self._entry(ark, "RCON host", "KITSUFLOW_ARK_HOST")
+        self._entry(ark, "RCON port", "KITSUFLOW_ARK_PORT")
+        self._entry(ark, "Admin password", "KITSUFLOW_ARK_PASSWORD", secret=True)
+        self._entry(ark, "Your ARK player ID (used for {player})", "KITSUFLOW_ARK_PLAYER")
+        self._status_row(ark, "Test (ListPlayers)", lambda: self.test_game("ark"), "ark")
+
+        other = self._card(page, "Other RCON game",
+                           "Palworld, Factorio, Project Zomboid or any game with Source-style RCON. Actions made in "
+                           "Studio for a different game are refused.")
+        self._check(other, "Run RCON game actions on this PC", "KITSUFLOW_RCON_ENABLED")
+        ttk.Label(other, text="Game").pack(anchor="w", pady=(8, 3))
+        ttk.Combobox(other, textvariable=self.vars["KITSUFLOW_RCON_GAME"], state="readonly",
+                     values=rcon_games.OTHER_GAMES).pack(fill="x")
+        self._entry(other, "RCON host", "KITSUFLOW_RCON_HOST")
+        self._entry(other, "RCON port", "KITSUFLOW_RCON_PORT")
+        self._entry(other, "RCON password", "KITSUFLOW_RCON_PASSWORD", secret=True)
+        self._entry(other, "Your player name (used for {player})", "KITSUFLOW_RCON_PLAYER")
+        self._status_row(other, "Test RCON connection",
+                         lambda: self.test_game(self.vars["KITSUFLOW_RCON_GAME"].get()), "rcon")
+
+        kp = self._card(page, "PC key presses (Windows)",
+                        "Chat commands press keys or mouse buttons in your game. Keys are only sent while the "
+                        "focused window's title contains the text below, so they never type into chat, OBS or "
+                        "a browser. Windows, Alt+F4 and Alt+Tab keys are always refused.")
+        self._check(kp, "Allow key presses on this PC", "KITSUFLOW_KEYS_ENABLED")
+        self._entry(kp, "Game window title contains", "KITSUFLOW_KEYS_WINDOW")
+        self._status_row(kp, "Use the window focused in 3 seconds", self.capture_window, "keys")
+        if sys.platform != "win32":
+            ttk.Label(kp, text="Key presses are available on Windows only.", style="Muted.TLabel").pack(anchor="w")
+
         actions = self._card(page, "Actions from Studio", "Refreshed every minute while connected.")
-        self.mc_list = tk.Listbox(actions, height=8, bg=RAISED, fg=TEXT, relief="flat", highlightthickness=0,
+        self.mc_list = tk.Listbox(actions, height=10, bg=RAISED, fg=TEXT, relief="flat", highlightthickness=0,
                                   selectbackground="#1b766a", font=("Segoe UI", 10))
         self.mc_list.pack(fill="x")
         self._save_row(page)
@@ -372,6 +421,8 @@ class AssistantApp:
                     self.voice_stop_button.config(state="disabled")
                 elif kind == "rcon":
                     self.mc_status.set(value)
+                elif kind == "game_status":
+                    self.game_status[value[0]].set(value[1])
                 elif kind == "worker_stopped":
                     if not (self.worker and self.worker.is_alive()):
                         self.status.set("Disconnected")
@@ -383,13 +434,14 @@ class AssistantApp:
     def _apply_assistant_config(self, config):
         name = config.get("channel") or "your channel"
         features = ["Beat Saber requests " + ("on" if config.get("bsr", {}).get("enabled") else "off in Studio")]
-        actions = config.get("minecraft", {}).get("actions", [])
-        features.append(f"{len(actions)} Minecraft action(s)")
+        actions = (config.get("games") or config.get("minecraft") or {}).get("actions", [])
+        features.append(f"{len(actions)} game action(s)")
         self.channel.set("Channel: " + name + " · " + " · ".join(features))
         self.mc_list.delete(0, "end")
         for a in actions:
             trigger = "!" + a["command"] if a["trigger_type"] == "command" else "on " + str(a.get("event_type"))
-            self.mc_list.insert("end", f"{a['name']}  ({trigger})" + ("" if a.get("enabled") else "  [off]"))
+            game = GAME_NAMES.get(a.get("game", "minecraft"), a.get("game", ""))
+            self.mc_list.insert("end", f"{a['name']}  ({trigger})  · {game}" + ("" if a.get("enabled") else "  [off]"))
 
     # ---------------------------------------------------------------- connection
     def toggle_connection(self):
@@ -594,6 +646,42 @@ class AssistantApp:
                 self.emit("rcon", "✗ " + str(exc))
 
         threading.Thread(target=run, daemon=True).start()
+
+    def test_game(self, game):
+        values = self.values()
+        prefix = "KITSUFLOW_ARK_" if game == "ark" else "KITSUFLOW_RCON_"
+        slot = "ark" if game == "ark" else "rcon"
+        self.game_status[slot].set("Testing…")
+
+        def run():
+            try:
+                result = rcon_games.test_connection(game, values[prefix + "HOST"], values[prefix + "PORT"],
+                                                    values[prefix + "PASSWORD"])
+                self.emit("game_status", (slot, "✓ " + " ".join(result.split())[:120]))
+            except Exception as exc:
+                self.emit("game_status", (slot, "✗ " + str(exc)))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def capture_window(self):
+        if sys.platform != "win32":
+            self.game_status["keys"].set("Windows only")
+            return
+        self.game_status["keys"].set("Click your game window now…")
+
+        def grab():
+            try:
+                title = keys.WindowsSender().foreground_title().strip()
+            except Exception as exc:
+                self.game_status["keys"].set("✗ " + str(exc))
+                return
+            if not title or title == self.root.title():
+                self.game_status["keys"].set("✗ The Assistant itself was focused; try again")
+                return
+            self.vars["KITSUFLOW_KEYS_WINDOW"].set(title[:80])
+            self.game_status["keys"].set("✓ Using \"" + title[:60] + "\" (click Save settings)")
+
+        self.root.after(3000, grab)
 
     # ---------------------------------------------------------------- lifecycle
     def close(self):
