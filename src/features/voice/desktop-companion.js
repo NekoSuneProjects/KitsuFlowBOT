@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { createDeviceAuth } from '../companion-devices.js';
 // Device key is separate from Twitch/streamer OAuth credentials; never sent to the microphone client.
 export function installVoiceCompanion({ app, db, withUser, csrf, access, api, clip, log, say }) {
   db.exec(`CREATE TABLE IF NOT EXISTS voice_companion_devices(
@@ -113,21 +114,7 @@ export function installVoiceCompanion({ app, db, withUser, csrf, access, api, cl
       res.json({ ok: true });
     }
   );
-  const device = (req, res, next) => {
-    const header = req.get('Authorization') || '',
-      key = header.startsWith('Bearer ') ? header.slice(7) : '';
-    if (!/^kfv_[A-Za-z0-9_-]{48}$/.test(key))
-      return res.status(401).json({ error: 'Device key required' });
-    const record = db
-      .prepare('SELECT id,channel FROM voice_companion_devices WHERE secret_hash=? AND revoked=0')
-      .get(h(key));
-    if (!record) return res.status(401).json({ error: 'Unknown or revoked device' });
-    req.companion = record;
-    db.prepare('UPDATE voice_companion_devices SET last_seen=CURRENT_TIMESTAMP WHERE id=?').run(
-      record.id
-    );
-    next();
-  };
+  const device = createDeviceAuth(db);
   app.get('/api/voice-companion/device/config', device, (req, res) => {
     const s = settings(req.companion.channel);
     res.set('Cache-Control', 'no-store').json({

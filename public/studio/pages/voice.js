@@ -176,7 +176,7 @@ export async function voice() {
     )
   );
   const desktop = card(
-    'Desktop Voice Companion',
+    'KitsuFlowBOT Assistant (desktop app)',
     'Your PC listens to its microphone locally, then securely asks this dashboard to clip supported live platforms. No OBS required.'
   );
   if (access.role === 'owner') {
@@ -279,7 +279,7 @@ export async function voice() {
     desktop.append(
       e(
         'p',
-        'Companion source and Windows/Linux downloads: GitHub desktopapp branch (voice-companion/). Install Python, Vosk, sounddevice and a local speech model on the PC.',
+        'Download the KitsuFlowBOT Assistant for Windows/Linux from GitHub Releases (desktopapp branch). It also runs Beat Saber requests and Minecraft Interactive: see Assistant App. Speech models download inside the app; no Python install needed.',
         'description'
       )
     );

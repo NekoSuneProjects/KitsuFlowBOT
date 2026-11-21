@@ -78,6 +78,7 @@ export function createChatHandler({ db, twitch, log, globalCommands, scamProtect
       if (await features.engagement.onMessage(ch, e, value, parts, isMod)) return;
       if (await features.creator.onMessage(ch, e, value, parts, isMod)) return;
       if (await features.pokemon.onMessage(ch, e, parts, isMod)) return;
+      if (await features.assistant.onMessage(ch, e, parts)) return;
       if (!cmd?.startsWith('!')) {
         await globalCommands.onTrivia(ch, e, value);
         return;

@@ -415,3 +415,12 @@ KitsuFlowBOT uses the Omni gateway (OmniRoute, OpenAI-compatible, `https://omni.
 
 `!askgpt` only runs in Twitch chat for now; Kick, VPZone, NekoLive and BEAM run custom commands only.
 
+
+## KitsuFlowBOT Assistant (desktop app): Beat Saber and Minecraft
+
+The desktop app (`desktopapp` branch, `assistant/`) replaces the Voice Companion. It pairs with the same `kfv_…` device keys (Voice & Clips → Pair a PC). Configure it in Studio → **Assistant App**.
+
+- **`!bsr <key>`** (Twitch chat): the bot looks the map up on BeatSaver and queues it for the app, which installs it into `Beat Saber_Data/CustomLevels`. It replies "@user requested Artist - Song (mapped by Mapper) [key]. Added!" Requests are refused when the app is offline (no poll in 30 s), the queue is full or the map is already queued. The access level, per-user cooldown and queue size are set in Studio.
+- **Minecraft Interactive:** actions are triggered by a chat command (with points cost, cooldown and level) or a stream event (follow, sub, gift sub, cheer, kicks, tip or raid on a chosen platform, with an optional minimum amount). Each action sends one or more RCON commands; `{player}` (the streamer's in-game name, filled in by the app) and `{user}` (the sanitised viewer name) can be used in them. **Test** in Studio queues an action without charging anyone.
+- **Jobs:** the app claims jobs from `GET /api/assistant/device/jobs` and reports results to `POST /api/assistant/device/jobs/:id`. Jobs that aren't claimed within 10 minutes, or aren't reported within 5 minutes of being claimed, expire. Failed or expired jobs refund the viewer's points. The Assistant App page shows the job history and can cancel pending jobs.
+- The app refuses server-admin RCON commands (`op`, `stop`, `ban`, …) and only downloads maps from `beatsaver.com`.

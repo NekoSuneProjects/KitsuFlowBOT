@@ -9,7 +9,8 @@ import { createEventSub } from './twitch/eventsub.js';
 import { createChatHandler } from './twitch/chat-handler.js';
 import { registerTwitchAuthRoutes } from './twitch/auth-routes.js';
 import { registerTwitchAdminRoutes } from './twitch/admin-routes.js';
-import { createGlobalCommands } from './commands/global-commands.js';
+import { createGlobalCommands, GLOBAL_COMMANDS } from './commands/global-commands.js';
+import { installAssistant } from './features/assistant.js';
 import { createAskGpt } from './commands/askgpt.js';
 import { installWatchTime } from './features/watch-time.js';
 import { createOmniClient } from './features/ai/omni.js';
@@ -97,6 +98,7 @@ export function startServer() {
     subathon.onActivity(...args);
     streamBoss.onActivity(...args);
     creatorGoals.onActivity(...args);
+    features.assistant?.onActivity(...args);
   });
   streamActivity.setSender('twitch', say);
 
@@ -178,6 +180,26 @@ export function startServer() {
     botId
   });
   features.chatClip = installChatClip({ app, db, withUser, csrf, access, api, clip, log, say });
+  // KitsuFlowBOT Assistant desktop app: Beat Saber requests and Minecraft Interactive.
+  features.assistant = installAssistant({
+    app,
+    db,
+    withUser,
+    csrf,
+    safe,
+    access,
+    say,
+    log,
+    reservedCommands: () => [
+      ...Object.keys(GLOBAL_COMMANDS),
+      ...features.pokemon.reserved,
+      ...features.engagement.reserved,
+      'clip',
+      'ban',
+      'timeout',
+      'uptime'
+    ]
+  });
 
   // Linked streaming platforms.
   const platformDeps = {

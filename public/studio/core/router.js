@@ -17,6 +17,7 @@ import { multichat } from '../pages/multichat.js';
 import { relay } from '../pages/relay.js';
 import { channel, team } from '../pages/settings.js';
 import { admin } from '../pages/admin.js';
+import { assistant } from '../pages/assistant.js';
 import { $, e, h } from './dom.js';
 import { notify, api, error } from './api.js';
 import { state, access, page, setStudioData, setPage } from './store.js';
@@ -62,6 +63,7 @@ export const groups = [
       ['subathon', '⏳', 'Subathon Timer'],
       ['streamboss', '⚔', 'Stream Boss'],
       ['support', '♡', 'Alerts & Donations'],
+      ['assistant', '◈', 'Assistant App'],
       ['connections', '⇄', 'Connections']
     ]
   ],
@@ -85,7 +87,8 @@ export const ownerPages = new Set([
   'goals',
   'metadata',
   'multichat',
-  'relay'
+  'relay',
+  'assistant'
 ]);
 export const descriptions = {
   overview: 'A clear view of everything happening across your channel.',
@@ -112,7 +115,8 @@ export const descriptions = {
   connections: 'View broadcaster and shared public bot status.',
   channel: 'Manage your own channel and security credentials.',
   team: 'Invite editors and trusted moderators.',
-  admin: 'Configure and monitor the public bot for all channels.'
+  admin: 'Configure and monitor the public bot for all channels.',
+  assistant: 'Desktop app: Beat Saber song requests and Minecraft Interactive.'
 };
 export async function load() {
   try {
@@ -222,7 +226,8 @@ const views = {
   connections,
   channel,
   team,
-  admin
+  admin,
+  assistant
 };
 export async function show(id) {
   if ((id === 'admin' && !state.isOperator) || (ownerPages.has(id) && access.role !== 'owner'))

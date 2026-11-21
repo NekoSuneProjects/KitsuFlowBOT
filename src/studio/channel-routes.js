@@ -110,9 +110,15 @@ export function registerChannelRoutes(
         'addquote',
         'quote',
         'counter',
+        'bsr',
         ...Object.keys(GLOBAL_COMMANDS),
         ...features.pokemon.reserved
       ].includes(name) ||
+      db
+        .prepare(
+          "SELECT 1 FROM minecraft_actions WHERE channel=? AND trigger_type='command' AND command=?"
+        )
+        .get(req.channelId, name) ||
       !response ||
       response.length > 450 ||
       !['everyone', 'subscriber', 'moderator'].includes(req.body.level)
