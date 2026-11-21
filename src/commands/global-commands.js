@@ -1,4 +1,4 @@
-import { EXTRA_COMMANDS, createExtraCommands } from './extra-commands.js';
+import { EXTRA_COMMANDS, createExtraCommands, displayName } from './extra-commands.js';
 
 // Built-in chat commands every channel can toggle in Studio → Custom Commands → Global bot commands.
 export const GLOBAL_COMMANDS = {
@@ -14,6 +14,13 @@ export const GLOBAL_COMMANDS = {
   setpoints: { level: 'supermod', description: "Set a viewer's loyalty points" },
   setgame: { level: 'supermod', description: 'Change stream category/game' },
   settitle: { level: 'supermod', description: 'Change stream title' },
+  askgpt: {
+    level: 'everyone',
+    perUser: true,
+    defaultOff: true,
+    description:
+      'Ask the AI a question: !askgpt <question> (web search for current events, family-friendly, limited answers per hour)'
+  },
   ...EXTRA_COMMANDS
 };
 
@@ -43,7 +50,7 @@ const numberArg = value => {
   return Number.isSafeInteger(n) && n >= 0 && n <= 1000000 ? n : null;
 };
 
-export function createGlobalCommands({ db, twitch, baseUrl, log }) {
+export function createGlobalCommands({ db, twitch, baseUrl, log, askgpt }) {
   const { api, say, botId, resolveViewer } = twitch;
   const BASE = baseUrl;
   db.exec(`CREATE TABLE IF NOT EXISTS global_command_settings(channel TEXT NOT NULL,name TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(channel,name));
@@ -104,6 +111,10 @@ CREATE TABLE IF NOT EXISTS channel_supermods(channel TEXT NOT NULL,user_id TEXT 
     cooldowns.set(key, now + (perUser ? 5000 : 10000));
     if (EXTRA_COMMANDS[globalName]) {
       await runExtra(globalName, { ch, e, parts });
+      return;
+    }
+    if (globalName === 'askgpt') {
+      await askgpt.run({ ch, e, parts, who: displayName(e) });
       return;
     }
     const requestedLogin = (parts[1] || '').replace(/^@/, '');

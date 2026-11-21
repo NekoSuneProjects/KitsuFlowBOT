@@ -10,6 +10,8 @@ import { createChatHandler } from './twitch/chat-handler.js';
 import { registerTwitchAuthRoutes } from './twitch/auth-routes.js';
 import { registerTwitchAdminRoutes } from './twitch/admin-routes.js';
 import { createGlobalCommands } from './commands/global-commands.js';
+import { createAskGpt } from './commands/askgpt.js';
+import { createOmniClient } from './features/ai/omni.js';
 import { registerChannelScope } from './studio/channel-scope.js';
 import { registerChannelRoutes } from './studio/channel-routes.js';
 import { registerCommandsPage } from './web/commands-page.js';
@@ -52,7 +54,9 @@ export function startServer() {
   const features = {};
   const twitch = createTwitchClient({ db, config, enc, dec, log });
   const { api, say, moderate, clip, botId } = twitch;
-  const globalCommands = createGlobalCommands({ db, twitch, baseUrl: BASE, log });
+  const omni = createOmniClient();
+  const askgpt = createAskGpt({ omni, say: twitch.say, log });
+  const globalCommands = createGlobalCommands({ db, twitch, baseUrl: BASE, log, askgpt });
   const scamProtection = createScamProtection({ db, twitch, log });
   const onChatMessage = createChatHandler({
     db,

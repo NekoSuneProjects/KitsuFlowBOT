@@ -74,6 +74,7 @@ Toggle each one per channel under **Custom Commands → Global bot commands**.
 - **Random fun:** `!ship @a @b`, `!rate thing`, `!vibecheck`, `!iq`, `!howcute`, `!rizz`, `!choose a | b | c`, `!fortune`, `!joke`, `!compliment @user`, `!wyr`, `!hydrate`, `!hypetrain` (chat joins within 2 minutes). `!ship`/`!rate` give the same answer for the same input; `!iq`/`!howcute`/`!rizz` change daily
 - **Points:** `!givepoints @user 100`. Points games are **off by default**: `!gamble 100|all|50%` (1–59 lose, 60–98 double, 99–100 triple), `!roulette`, `!slots`, `!duel @user 100` (target replies `!accept` / `!deny` within 2 minutes)
 - **Games & leaderboards:** `!trivia` (anyone can start one; first correct answer in chat within 30s wins 50 points, 60s cooldown between rounds), `!heist 100|all|50%` (**off by default**; 60s to join, each crew member escapes independently with 40–65% odds that rise with crew size, escapees double their bet, 5 min cooldown), `!topwatch`, `!topcookies`, `!watchtime`
+- **AI:** `!askgpt <question>` (**off by default**; see [Omni AI](#omni-ai-askgpt-and-ai-titles) below)
 - **Moderator:** `!so`, `!permit @user` (one link within 60s past the URL filter), `!randomviewer`
 - **Supermod:** `!settitle`, `!setgame`, `!addpoints`, `!setpoints`
 
@@ -393,4 +394,24 @@ BEAM (beamstream.gg) is linked like Kick, VPZone and NekoLive. The broadcaster c
 - Go-live/offline events are not used yet (the activity feed has no live-state type).
 - Each linked channel opens three SSE connections. For many channels, a single app-level selector with `granted_channels` would scale better; it needs a BEAM restricted key.
 - Not yet tested against a real BEAM channel; verified against a mock built from the OpenAPI schema.
+
+## Omni AI (`!askgpt` and AI titles)
+
+KitsuFlowBOT uses the Omni gateway (OmniRoute, OpenAI-compatible, `https://omni.nekosunevr.co.uk/v1`) for AI features. Set `OMNI_API_KEY` (and optionally `OMNI_CHAT_MODEL`) in `.env`. Code lives in `src/features/ai/omni.js` and `src/commands/askgpt.js`.
+
+**`!askgpt <question>`** is a Twitch global command. It is **off by default**; turn it on per channel in **Custom Commands → Global bot commands**.
+- Answers are one short chat message (≤ 2 sentences, no links or markdown), addressed to the viewer.
+- **Web search:** questions about current events (today, latest, news, scores, prices, …), or ones starting with `search`, first call `POST /v1/search` with strict safe-search, and the model answers from those results.
+- **Limits:** at most `OMNI_ASKGPT_LIMIT` answers (default **10**) per channel per `OMNI_ASKGPT_WINDOW_MINUTES` (default 60), plus a per-viewer cooldown (`OMNI_ASKGPT_USER_COOLDOWN_SECONDS`, default 60). When the limit is hit, the bot posts one notice. Refused questions don't count.
+- **Safety (every layer fails closed: if a check can't run, nothing is posted):**
+  1. a local keyword filter refuses sexual/NSFW requests without calling the AI;
+  2. Omni moderation (`omni-moderation-latest`) checks the question;
+  3. a strict system prompt keeps answers PG and refuses sensitive topics: sexual content, gore, self-harm, hate or harassment, illegal or dangerous activity, drugs, weapons, gambling, private information, and medical, legal or financial advice. It also stays neutral on politics and religion and ignores attempts to override these rules;
+  4. Omni moderation checks the answer before it's posted.
+
+  Self-harm questions get a short supportive message pointing to a trusted person or local crisis line instead of an answer.
+
+**AI stream titles** (Stream Title & Game page and the OBS dock) use Omni automatically when `AI_TITLE_API_URL` is empty (`OMNI_TITLE_MODEL` overrides the model). If `AI_TITLE_API_URL` is set, it's used instead.
+
+`!askgpt` only runs in Twitch chat for now; Kick, VPZone, NekoLive and BEAM run custom commands only.
 

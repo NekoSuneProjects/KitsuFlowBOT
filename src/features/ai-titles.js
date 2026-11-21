@@ -1,9 +1,22 @@
+import { omniConfig, omniConfigured } from './ai/omni.js';
+
 // AI stream-title suggestions through a server-configured OpenAI-compatible endpoint.
-const envAi = () => ({
-  endpoint: String(process.env.AI_TITLE_API_URL || '').trim(),
-  model: String(process.env.AI_TITLE_MODEL || '').trim(),
-  key: String(process.env.AI_TITLE_API_KEY || '').trim()
-});
+// AI_TITLE_* wins when set; otherwise the Omni gateway (OMNI_*) is used.
+const envAi = () => {
+  const endpoint = String(process.env.AI_TITLE_API_URL || '').trim();
+  if (endpoint || !omniConfigured())
+    return {
+      endpoint,
+      model: String(process.env.AI_TITLE_MODEL || '').trim(),
+      key: String(process.env.AI_TITLE_API_KEY || '').trim()
+    };
+  const omni = omniConfig();
+  return {
+    endpoint: omni.base + '/chat/completions',
+    model: String(process.env.OMNI_TITLE_MODEL || omni.chatModel).trim(),
+    key: omni.key
+  };
+};
 
 export function installAiTitles({ app, db, withUser, csrf, access }) {
   // Legacy per-channel AI settings table; kept so existing databases stay unchanged.
@@ -16,9 +29,9 @@ export function installAiTitles({ app, db, withUser, csrf, access }) {
     res.set('Cache-Control', 'no-store');
     const active = envAi();
     if (!active.endpoint || !active.model)
-      return res
-        .status(409)
-        .json({ error: 'Configure AI_TITLE_API_URL and AI_TITLE_MODEL on the server' });
+      return res.status(409).json({
+        error: 'Configure OMNI_API_KEY (or AI_TITLE_API_URL and AI_TITLE_MODEL) on the server'
+      });
     const game = String(req.body?.game || '')
         .trim()
         .slice(0, 90),
@@ -57,7 +70,7 @@ export function installAiTitles({ app, db, withUser, csrf, access }) {
               content:
                 'Return only one catchy, discoverable live stream title, plain text, at most 110 characters. Mention the supplied game, avoid misleading claims, giveaways, hashtag spam, profanity and platform-policy violations. No quotation marks.'
             },
-            { role: 'user', content: 'Game: ' + game + '\\nExtra context: ' + context }
+            { role: 'user', content: 'Game: ' + game + '\nExtra context: ' + context }
           ]
         }),
         signal: controller.signal
@@ -80,8 +93,8 @@ export function installAiTitles({ app, db, withUser, csrf, access }) {
       const payload = await response.json();
       const title = String(payload.choices?.[0]?.message?.content || '')
         .trim()
-        .replace(/^[\\"']|[\\"']$/g, '')
-        .replace(/[\\r\\n]+/g, ' ')
+        .replace(/^["']|["']$/g, '')
+        .replace(/[\r\n]+/g, ' ')
         .slice(0, 110);
       if (!title)
         return res.status(502).json({
